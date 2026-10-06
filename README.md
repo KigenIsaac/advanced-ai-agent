@@ -5,6 +5,88 @@
 [![Python](https://img.shields.io/badge/Python-3.x-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Git](https://img.shields.io/badge/Git-Workflow-F05032?style=flat-square&logo=git&logoColor=white)](https://git-scm.com/)
 [![Docker](https://img.shields.io/badge/Docker-Sandboxing-2496ED?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/)
+[![CI](https://github.com/KigenIsaac/advanced-ai-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/KigenIsaac/advanced-ai-agent/actions/workflows/ci.yml)
+
+## 🚀 Quick Start
+
+### Requirements
+
+- Python 3.x (CI currently validates Python 3.12)
+- An API key for the selected LLM provider
+- Docker is optional and only needed for the Docker sandbox backend
+- Playwright browser binaries are required for browser automation
+
+### Install
+
+Linux / macOS:
+
+```bash
+git clone https://github.com/KigenIsaac/advanced-ai-agent.git
+cd advanced-ai-agent
+
+python -m venv .venv
+source .venv/bin/activate
+
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m playwright install
+```
+
+Windows PowerShell:
+
+```powershell
+git clone https://github.com/KigenIsaac/advanced-ai-agent.git
+cd advanced-ai-agent
+
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+py -m pip install --upgrade pip
+py -m pip install -r requirements.txt
+py -m playwright install
+```
+
+### Configure
+
+Copy `.env.example` to `.env` and provide your API key:
+
+```text
+AGNES_API_KEY=your_api_key_here
+AGNES_PROVIDER=agnes
+AGNES_MODEL=agnes-3.0-flash
+```
+
+The repository ignores `.env` so credentials should not be committed.
+
+### Run
+
+```bash
+python main.py
+```
+
+On Windows, `py main.py` can be used instead.
+
+The CLI lets you select a provider and open or create a project workspace. Use `--help` to inspect available runtime options.
+
+### Run tests
+
+Install development dependencies:
+
+```bash
+python -m pip install -r requirements-dev.txt
+pytest -q
+```
+
+On Windows:
+
+```powershell
+py -m pip install -r requirements-dev.txt
+py -m pytest -q
+```
+
+The test suite covers configuration behavior plus deterministic workspace, test-runner, failure-parsing, and provider-utility components. No API key is required to run the tests.
+
+---
 
 ## Overview
 
@@ -409,7 +491,12 @@ At a high level, the project is organized around several cooperating subsystems:
 ├── webagent/
 ├── main.py
 ├── providers.json
-└── test_custom_agent_config.py
+├── requirements.txt
+├── requirements-dev.txt
+├── .env.example
+├── .github/workflows/ci.yml
+├── test_custom_agent_config.py
+└── test_core_components.py
 ```
 
 The repository is intentionally modular around the major capabilities required by an autonomous software-engineering workflow.
