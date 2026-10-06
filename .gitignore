@@ -1,1 +1,27 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
 *.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+env/
+ENV/
+
+# Runtime artifacts
+*.log
+
+# Editors
+.idea/
+.vscode/
+.DS_Store
