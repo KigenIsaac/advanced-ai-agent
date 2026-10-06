@@ -7,6 +7,8 @@
 [![Docker](https://img.shields.io/badge/Docker-Sandboxing-2496ED?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/)
 [![CI](https://github.com/KigenIsaac/advanced-ai-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/KigenIsaac/advanced-ai-agent/actions/workflows/ci.yml)
 
+**AI Agent · Developer Tooling · Code Intelligence · Automation**
+
 ## 🚀 Quick Start
 
 ### Requirements
@@ -94,41 +96,23 @@ Most LLM applications stop at producing text or code suggestions.
 
 This project explores a different approach:
 
-```text
-                    ┌─────────────────────┐
-                    │        User         │
-                    │  Software task      │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │      AI Agent       │
-                    │  Reason + Plan      │
-                    └──────────┬──────────┘
-                               │
-              ┌────────────────┼────────────────┐
-              ▼                ▼                ▼
-        ┌───────────┐    ┌───────────┐    ┌───────────┐
-        │   Code    │    │  Terminal │    │   Web /   │
-        │  Tools    │    │  Processes│    │  Browser  │
-        └─────┬─────┘    └─────┬─────┘    └─────┬─────┘
-              │                │                │
-              └────────────────┼────────────────┘
-                               ▼
-                    ┌─────────────────────┐
-                    │   Execute & Test    │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │ Feedback / Failure  │
-                    │    Analysis         │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │  Fix / Improve      │
-                    └─────────────────────┘
+```mermaid
+graph TD
+    U["User task"] --> A["AI Agent<br/>Reason + Plan"]
+    A --> C["Code Tools"]
+    A --> T["Terminal & Processes"]
+    A --> W["Web & Browser"]
+    C --> E["Execute & Test"]
+    T --> E
+    W --> E
+    E --> F["Feedback / Failure Analysis"]
+    F --> I["Fix / Improve"]
+    I --> E
+
+    classDef core fill:#24292f,color:#fff,stroke:#57606a;
+    classDef action fill:#0969da,color:#fff,stroke:#0969da;
+    class U,A core;
+    class C,T,W,E,F,I action;
 ```
 
 The goal is to give an AI the tools required to **inspect, change, execute, test, debug, and manage software-engineering work**.
@@ -443,37 +427,27 @@ Destructive deployment actions can be gated behind explicit authorization.
 
 At a high level, the project is organized around several cooperating subsystems:
 
-```text
-                         ┌──────────────────┐
-                         │   Agent Runtime  │
-                         └────────┬─────────┘
-                                  │
-             ┌────────────────────┼────────────────────┐
-             │                    │                    │
-             ▼                    ▼                    ▼
-      ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
-      │ Code Agent  │      │ Web Agent   │      │ LLM Layer   │
-      └──────┬──────┘      └──────┬──────┘      └──────┬──────┘
-             │                    │                    │
-             ▼                    ▼                    ▼
-      ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
-      │ Workspace   │      │ Browser     │      │ Providers   │
-      │ + LSP       │      │ Automation  │      │ + Streaming │
-      └──────┬──────┘      └─────────────┘      └─────────────┘
-             │
-      ┌──────┴──────────────────────────┐
-      ▼                                 ▼
-┌─────────────┐                  ┌─────────────┐
-│ Terminal    │                  │ Git         │
-│ Processes   │                  │ Workflows   │
-└──────┬──────┘                  └──────┬──────┘
-       │                                │
-       └────────────────┬───────────────┘
-                        ▼
-                ┌───────────────┐
-                │ Testing / QA  │
-                │ Feedback Loop │
-                └───────────────┘
+```mermaid
+graph TD
+    R["Agent Runtime"] --> CA["Code Agent"]
+    R --> WA["Web Agent"]
+    R --> LLM["LLM Layer"]
+
+    CA --> WS["Workspace + LSP"]
+    WA --> BA["Browser Automation"]
+    LLM --> P["Providers + Streaming"]
+
+    WS --> TP["Terminal & Processes"]
+    WS --> G["Git Workflows"]
+    TP --> QA["Testing / QA<br/>Feedback Loop"]
+    G --> QA
+
+    classDef runtime fill:#24292f,color:#fff,stroke:#57606a;
+    classDef subsystem fill:#0969da,color:#fff,stroke:#0969da;
+    classDef support fill:#1f883d,color:#fff,stroke:#1f883d;
+    class R runtime;
+    class CA,WA,LLM subsystem;
+    class WS,BA,P,TP,G,QA support;
 ```
 
 ---
