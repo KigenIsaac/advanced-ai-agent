@@ -39,3 +39,7 @@ Host destructive operations and deployment are disabled unless the host sets `AG
 ## Credits
 
 Faithful migration target: `KigenIsaac/advanced-ai-agent` (Python). Original file/action names and defaults are preserved as much as possible. Changes that improve security/correctness are documented instead of silently substituted.
+
+## Native document readers
+
+The Rust `tools::documents::read_any(path)` function supports text, CSV, Excel, PDF and DOCX using Rust-native parsers, corresponding to the Python `webagent/documents.py` convenience method. Parsed data remains a Rust JSON value and follows the original document-reader result keys. Limits prevent oversized documents. See `PARITY.md` for the verification matrix and remaining differences.

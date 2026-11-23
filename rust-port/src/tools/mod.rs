@@ -6,7 +6,7 @@ use serde_json::{json,Value};
 use std::{collections::BTreeSet,sync::Arc};
 use tokio::sync::{Mutex,RwLock};
 
-pub mod browser;pub mod debug;pub mod deploy;pub mod editor;pub mod git;
+pub mod browser;pub mod documents;pub mod debug;pub mod deploy;pub mod editor;pub mod git;
 pub mod lsp;pub mod packages;pub mod project;pub mod review;pub mod runtime;
 pub mod sandbox;pub mod terminal;pub mod testing;pub mod web;pub mod workspace;
 
