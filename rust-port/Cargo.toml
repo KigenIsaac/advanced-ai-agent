@@ -1,0 +1,54 @@
+[package]
+name = "advanced-ai-agent"
+version = "0.1.0"
+edition = "2021"
+description = "Native Rust port of KigenIsaac/advanced-ai-agent"
+license = "MIT"
+
+[lib]
+name = "advanced_ai_agent"
+path = "src/lib.rs"
+
+[[bin]]
+name = "advanced-ai-agent"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1"
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde", "clock"] }
+clap = { version = "4.5", features = ["derive", "env"] }
+flate2 = "1"
+futures-util = "0.3"
+globset = "0.4"
+hex = "0.4"
+htmlescape = "0.3"
+regex = "1.11"
+similar = "2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "multipart", "cookies"] }
+scraper = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+sha2 = "0.10"
+shell-words = "1"
+thiserror = "2"
+tempfile = "3"
+tar = "0.4"
+tokio = { version = "1", features = ["full", "process", "signal"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+tokio-util = "0.7"
+url = "2.5"
+uuid = { version = "1", features = ["v4", "serde"] }
+walkdir = "2.5"
+which = "7"
+
+[dev-dependencies]
+assert_fs = "1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "unwind"

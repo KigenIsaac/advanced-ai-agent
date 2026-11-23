@@ -1,0 +1,23 @@
+name: Rust port CI
+on:
+  push:
+    branches: [rust-port]
+  pull_request:
+    branches: [master, rust-port]
+permissions:
+  contents: read
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust-port
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo check --all-targets
+      - run: cargo test --all-targets
+      - run: cargo clippy --all-targets
+      - run: cargo fmt --all
