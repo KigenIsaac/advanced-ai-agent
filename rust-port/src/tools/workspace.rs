@@ -60,7 +60,7 @@ impl Workspace {
         fs::write(p,changed)?;Ok(json!({"path":path,"replaced":if count<0{occurrences}else{occurrences.min(count as usize)}}))
     }
     pub fn search(&self,pattern:&str,path:&str,regex:bool,limit:usize)->Result<Vec<Value>>{
-        let p=self.resolve(path)?;let rx=Regex::new(if regex{pattern.to_string()}else{regex::escape(pattern)})?;
+        let p=self.resolve(path)?;let rx=Regex::new(&if regex{pattern.to_string()}else{regex::escape(pattern)})?;
         let mut out=Vec::new();for f in self.iter(&p){if !f.is_file()||!text_file(&f){continue}
             let content=match fs::read_to_string(&f){Ok(c)=>c,Err(_)=>continue};
             for (i,line) in content.lines().enumerate(){if rx.is_match(line){out.push(json!({"file":self.relative(&f),"line":i+1,"text":line}));
@@ -122,7 +122,7 @@ impl Workspace {
             "grep"|"search_code"=>Ok(json!({"hits":self.search(arg("pattern"),path,true,500)?})),
             "replace_all"=>{
                 let pattern=arg("pattern");let replacement=arg("new_text");let dry=kw["dry_run"].as_bool().unwrap_or(false);
-                let rx=Regex::new(if kw["regex"].as_bool().unwrap_or(false){pattern.to_owned()}else{regex::escape(pattern)})?;
+                let rx=Regex::new(&if kw["regex"].as_bool().unwrap_or(false){pattern.to_owned()}else{regex::escape(pattern)})?;
                 let hits=self.search(pattern,path,kw["regex"].as_bool().unwrap_or(false),10000)?;
                 let mut files=BTreeSet::new();for h in hits{if let Some(s)=h["file"].as_str(){files.insert(s.to_string());}}
                 let mut edits=0;for file in &files{let p=self.resolve(file)?;let src=fs::read_to_string(&p)?;

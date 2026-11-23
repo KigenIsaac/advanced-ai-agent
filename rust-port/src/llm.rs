@@ -204,7 +204,8 @@ impl LlmClient {
             out.finish_reason=payload["choices"][0]["finish_reason"].as_str().map(str::to_owned).or(out.finish_reason);
         }
         for (_, (id,name,raw)) in calls {
-            out.tool_calls.push(ToolCall{id,name,arguments:serde_json::from_str(&raw).with_context(||format!("malformed tool arguments for {name}"))?});
+            let arguments=serde_json::from_str(&raw).with_context(||format!("malformed tool arguments for {name}"))?;
+            out.tool_calls.push(ToolCall{id,name,arguments});
         }
         Ok(out)
     }

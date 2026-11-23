@@ -170,7 +170,15 @@ impl Browser {
             let path=self.download_dir.join(name);std::fs::write(&path,&content)?;Ok(json!({"path":path,"bytes":content.len()}))},
        "download_link"=>{let target=self.eval(&format!("document.querySelector({})?.href||null",Self::jsarg(sel))).await?;
            let link=target.as_str().ok_or_else(||anyhow!("download link not found"))?;
-           self.dispatch_download(link,kw["save_as"].as_str()).await
+           let file_name=kw["save_as"].as_str().filter(|s|!s.is_empty())
+               .and_then(|s|PathBuf::from(s).file_name().map(|v|v.to_owned()))
+               .unwrap_or_else(||std::ffi::OsString::from(format!("download-{}",Uuid::new_v4())));
+           std::fs::create_dir_all(&self.download_dir)?;
+           let response=reqwest::get(link).await?.error_for_status()?;
+           let bytes=response.bytes().await?;
+           let path=self.download_dir.join(file_name);
+           std::fs::write(&path,&bytes)?;
+           Ok(json!({"path":path,"bytes":bytes.len()}))
        },
        "get_downloads"=>Ok(json!({"downloads":std::fs::read_dir(&self.download_dir).ok().into_iter().flatten().filter_map(|x|x.ok()).map(|x|x.path().display().to_string()).collect::<Vec<_>>()})),
        "get_state"=>Ok(json!({"active_url":self.active_url.lock().await.clone(),"debug_port":self.port})),
