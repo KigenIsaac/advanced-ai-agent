@@ -4,7 +4,7 @@ This is a source-level Rust migration of [KigenIsaac/advanced-ai-agent](https://
 
 ## Coverage
 
-The Rust project retains the original 15 provider names and defaults, session and swarm modes, 16 coding tool categories, web search, user/project storage, CLIs and slash-command families, tool schemas/actions, worker limits, task plans with dependencies, and the central LLM → tools → results loop. Native Rust modules implement file operations, process control, Git, tests, build, packages, HTTP, read-only SQLite, LSP, Chrome CDP automation, web search, project memory/tasks, review, sandboxing, deployment and model HTTP adapters.
+The Rust project implements the original 15 provider names and defaults, session and swarm modes, 16 coding tool categories, web search, user/project storage, CLIs and slash-command families, tool schemas/actions, worker limits, task plans with dependencies, and the central LLM → tools → results loop. Native Rust modules implement file operations, process control, Git, tests, build, packages, HTTP, read-only SQLite, LSP, Chrome CDP automation, web search, project memory/tasks, review, sandboxing, deployment and model HTTP adapters.
 
 **Important:** A source port is not identical to full feature/behavior parity. Several high-complexity behaviors require end-to-end validation against the original Python client. See `PARITY.md` for exact differences and the verification matrix. This crate has not been compiled in the artifact-generation environment because `cargo`/`rustc` were absent; CI is provided for compilation and testing.
 
@@ -24,7 +24,7 @@ Set `AGNES_API_KEY` securely in `.env` (ignored by Git). `AGNES_PROVIDER` select
 
 ## Security
 
-Host destructive operations and deployment are disabled unless the host sets `AGENT_ALLOW_DESTRUCTIVE=1` before launching the program. Browser automation is driven using Rust and Chrome DevTools Protocol. The Docker sandbox drops privileges, disables networking by default and places resource limits. The subprocess backend is **not** a security boundary. The database tool enforces SQLite read-only access.
+Known high-risk host operations and deployment are gated unless the host sets `AGENT_ALLOW_DESTRUCTIVE=1` before launching the program. Browser automation is driven using Rust and Chrome DevTools Protocol. The Docker sandbox drops privileges, disables networking by default and places resource limits. The subprocess backend is **not** a security boundary. The database tool enforces SQLite read-only access.
 
 ## Directory structure
 

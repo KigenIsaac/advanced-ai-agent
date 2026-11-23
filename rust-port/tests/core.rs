@@ -71,3 +71,45 @@ async fn unsafe_terminal_operations_denied_without_host_approval(){
     assert!(term.guard("git push --force origin master").is_err());
     assert!(term.guard("cargo test").is_ok());
 }
+
+#[tokio::test]
+async fn agent_performs_real_tool_round_trip_against_mock_model() {
+    use advanced_ai_agent::{Agent,LlmClient};
+    use tokio::io::{AsyncReadExt,AsyncWriteExt};
+    use std::sync::Arc;
+    let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr=listener.local_addr().unwrap();
+    let server=tokio::spawn(async move {
+        for i in 0..2 {
+            let (mut stream,_)=listener.accept().await.unwrap();
+            let mut received=[0u8;16000];
+            let n=tokio::time::timeout(std::time::Duration::from_secs(5),stream.read(&mut received)).await.unwrap().unwrap();
+            assert!(String::from_utf8_lossy(&received[..n]).contains("/v1/chat/completions"));
+            let reply=if i==0 {
+                json!({"id":"test1","choices":[{"index":0,"message":{"role":"assistant","content":null,
+                    "tool_calls":[{"id":"call_one","type":"function","function":{"name":"workspace",
+                    "arguments":"{\"action\":\"write\",\"path\":\"test-output.txt\",\"content\":\"native-rust\"}"}}]},
+                    "finish_reason":"tool_calls"}]})
+            } else {
+                json!({"id":"test2","choices":[{"index":0,"message":{"role":"assistant",
+                    "content":"DONE: created test-output.txt"},"finish_reason":"stop"}]})
+            };
+            let content=reply.to_string();
+            let header=format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",content.len());
+            stream.write_all(format!("{header}{content}").as_bytes()).await.unwrap();
+        }
+    });
+    let root=tempdir().unwrap();
+    let mut cfg=config(root.path());
+    cfg.base_url=format!("http://{addr}/v1");
+    let cfg=Arc::new(cfg);
+    let client=LlmClient::new(cfg.clone()).unwrap();
+    let tools=ToolRegistry::new(&cfg).unwrap();
+    let mut agent=Agent::session(cfg.clone(),client,tools);
+    let outcome=agent.send("Create test-output.txt with native-rust").await.unwrap();
+    assert_eq!(outcome.tool_calls,1);
+    assert!(!outcome.stopped_by_limit);
+    assert!(outcome.content.starts_with("DONE:"));
+    assert_eq!(std::fs::read_to_string(root.path().join("test-output.txt")).unwrap(),"native-rust");
+    server.await.unwrap();
+}
