@@ -96,7 +96,7 @@ impl Swarm{
                    todo.status="in_progress".into();todo.assigned_to=Some(format!("W{:02}",index+1));
                    Some(todo.clone())
                }else{None}
-           }};
+           };
            if let Some(todo)=next{
               let started=Instant::now();
               let prompt=worker_prompt(&cfg,&todo);

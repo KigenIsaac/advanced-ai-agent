@@ -29,7 +29,6 @@ impl Provider {
         Self::Deepseek=>"deepseek",Self::Groq=>"groq",Self::Mistral=>"mistral",
         Self::Together=>"together",Self::Cohere=>"cohere",Self::Ollama=>"ollama",
         Self::Perplexity=>"perplexity",Self::Fireworks=>"fireworks",Self::Xai=>"xai"}}
-    }
     pub fn from_name(name: &str) -> Result<Self> {
         serde_json::from_value(serde_json::Value::String(name.to_lowercase()))
             .with_context(|| format!("unsupported provider: {name}"))

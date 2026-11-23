@@ -111,11 +111,25 @@ impl Browser {
        "hover"=>self.selector_action(sel,"const r=el.getBoundingClientRect();el.dispatchEvent(new MouseEvent('mouseover',{bubbles:true,clientX:r.x+r.width/2,clientY:r.y+r.height/2}));return {ok:true}").await,
        "select"=>{let val=Self::jsarg(a("value"));self.selector_action(sel,&format!("el.value={val};el.dispatchEvent(new Event('change',{{bubbles:true}}));return {{ok:true}}")).await},
        "check"|"uncheck"=>self.selector_action(sel,&format!("el.checked={};el.dispatchEvent(new Event('change',{{bubbles:true}}));return {{ok:true}}",action=="check")).await,
-       "upload"=>bail!("CDP file upload requires DOM.setFileInputFiles; use browser file upload in a host-approved workspace"),
+       "upload"=>{
+           let file=std::fs::canonicalize(a("file_path"))?;
+           let root=std::fs::canonicalize(self.download_dir.parent().ok_or_else(||anyhow!("missing workspace root"))?)?;
+           if !file.starts_with(&root){bail!("upload path escapes the authorized workspace")}
+           let doc=self.cdp("DOM.getDocument",json!({})).await?;
+           let queried=self.cdp("DOM.querySelector",json!({"nodeId":doc["root"]["nodeId"],"selector":sel})).await?;
+           let node=queried["nodeId"].as_i64().unwrap_or(0);if node==0{bail!("upload element not found")}
+           self.cdp("DOM.setFileInputFiles",json!({"nodeId":node,"files":[file.to_string_lossy().to_string()]})).await
+       },
        "execute_js"=>self.js(a("script")).await,
        "evaluate"=>self.eval(a("script")).await,
        "screenshot"|"screenshot_element"=>{
-           let result=self.cdp("Page.captureScreenshot",json!({"format":"png","captureBeyondViewport":kw["full_page"]==true})).await?;
+           let mut settings=json!({"format":"png","captureBeyondViewport":kw["full_page"]==true});
+           if action=="screenshot_element"{
+               let bounds=self.eval(&format!("(()=>{{const r=document.querySelector({})?.getBoundingClientRect();return r?{{x:r.x,y:r.y,width:r.width,height:r.height}}:null}})()",Self::jsarg(sel))).await?;
+               if bounds.is_null(){bail!("element not found")}
+               settings["clip"]=json!({"x":bounds["x"],"y":bounds["y"],"width":bounds["width"],"height":bounds["height"],"scale":1});
+           }
+           let result=self.cdp("Page.captureScreenshot",settings).await?;
            let data=result["data"].as_str().unwrap_or("");Ok(json!({"format":"png","base64":data,"bytes":STANDARD.decode(data).map(|v|v.len()).unwrap_or(0)}))},
        "list_tabs"=>{let entries=reqwest::get(format!("http://127.0.0.1:{}/json/list",self.port)).await?.json::<Value>().await?;Ok(json!({"tabs":entries}))},
        "new_tab"=>{let target=self.cdp("Target.createTarget",json!({"url":if url.is_empty(){"about:blank"}else{url}})).await?;
@@ -127,16 +141,37 @@ impl Browser {
             drop(lock);self.cdp("Page.enable",json!({})).await?;Ok(json!({"ok":true}))},
        "close_tab"=>self.cdp("Target.closeTarget",json!({"targetId":a("tab_id")})).await,
        "get_frames"=>Ok(json!({"frames":self.cdp("Page.getFrameTree",json!({})).await?})),
-       "get_frame_content"=>bail!("frame-specific DOM extraction requires frame context selection"),
+       "get_frame_content"=>{
+           let frames=self.cdp("Page.getFrameTree",json!({})).await?;
+           fn gather(tree:&Value,out:&mut Vec<Value>){if tree["frame"].is_object(){out.push(tree["frame"].clone())}
+               if let Some(children)=tree["childFrames"].as_array(){for child in children{gather(child,out)}}}
+           let mut all=vec![];gather(&frames["frameTree"],&mut all);
+           let frame=kw["form_index"].as_u64().and_then(|n|all.get(n as usize)).or_else(||all.iter().find(|f|{
+               let key=kw["text"].as_str().unwrap_or("");!key.is_empty()&&f["url"].as_str().unwrap_or("").contains(key)}))
+               .ok_or_else(||anyhow!("frame not found"))?;
+           let world=self.cdp("Page.createIsolatedWorld",json!({"frameId":frame["id"],"worldName":"advanced-agent-inspection"})).await?;
+           let result=self.cdp("Runtime.evaluate",json!({"expression":"document.documentElement.outerHTML","returnByValue":true,"contextId":world["executionContextId"]})).await?;
+           Ok(json!({"html":result["result"]["value"]}))
+       },
        "get_network"|"get_api_calls"=>{self.start().await?;let lock=self.session.lock().await;
             let events=&lock.as_ref().unwrap().events;
             Ok(json!({"entries":if action=="get_api_calls"{events.iter().filter(|v|v["method"]=="Network.requestWillBeSent").take(250).cloned().collect::<Vec<_>>()}else{events.iter().take(500).cloned().collect::<Vec<_>>()}}))},
-       "get_response_body"=>self.cdp("Network.getResponseBody",json!({"requestId":a("request_id")})).await,
+       "get_response_body"=>{
+           let request_id=if !a("request_id").is_empty(){a("request_id").to_owned()}
+           else{let needle=url.to_string();let _=self.cdp("Runtime.evaluate",json!({"expression":"0"})).await?;
+               let lock=self.session.lock().await;
+               lock.as_ref().unwrap().events.iter().rev().find(|v|v["method"]=="Network.requestWillBeSent"&&v["params"]["request"]["url"]==needle)
+                   .and_then(|v|v["params"]["requestId"].as_str()).ok_or_else(||anyhow!("request URL not seen by network recorder"))?.to_owned()};
+           self.cdp("Network.getResponseBody",json!({"requestId":request_id})).await
+       },
        "download"=>{let target=PathBuf::from(a("save_as"));let name=if a("save_as").is_empty(){format!("download-{}",Uuid::new_v4())}else{target.file_name().unwrap_or_default().to_string_lossy().into_owned()};
             std::fs::create_dir_all(&self.download_dir)?;
             let content=reqwest::get(url).await?.error_for_status()?.bytes().await?;
             let path=self.download_dir.join(name);std::fs::write(&path,&content)?;Ok(json!({"path":path,"bytes":content.len()}))},
-       "download_link"=>bail!("download_link requires a resolved element URL; use get_links then download"),
+       "download_link"=>{let target=self.eval(&format!("document.querySelector({})?.href||null",Self::jsarg(sel))).await?;
+           let link=target.as_str().ok_or_else(||anyhow!("download link not found"))?;
+           self.dispatch_download(link,kw["save_as"].as_str()).await
+       },
        "get_downloads"=>Ok(json!({"downloads":std::fs::read_dir(&self.download_dir).ok().into_iter().flatten().filter_map(|x|x.ok()).map(|x|x.path().display().to_string()).collect::<Vec<_>>()})),
        "get_state"=>Ok(json!({"active_url":self.active_url.lock().await.clone(),"debug_port":self.port})),
        "save_session"=>{let result=self.cdp("Network.getAllCookies",json!({})).await?;
