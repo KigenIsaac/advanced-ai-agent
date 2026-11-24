@@ -31,7 +31,7 @@
   },
   "deepseek": {
     "base_url": "https://api.deepseek.com",
-    "model": "deepseek-chat",
+    "model": "deepseek-flash",
     "provider": "deepseek"
   },
   "groq": {
@@ -73,5 +73,15 @@
     "base_url": "https://api.x.ai/v1",
     "model": "grok-2-latest",
     "provider": "xai"
+  },
+  "qwen": {
+    "base_url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+    "model": "qwen3.7-plus",
+    "provider": "qwen"
+  },
+  "kimi": {
+    "base_url": "https://api.moonshot.ai/v1",
+    "model": "kimi-k2.5",
+    "provider": "kimi"
   }
 }
