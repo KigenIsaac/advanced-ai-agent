@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from dataclasses import replace
 import ast
 import json
 import os
@@ -26,6 +27,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.styles import Style
 from rich.box import ROUNDED
 from llm_providers import get_provider_adapter
+from smart_routing import ModelRoute, BudgetLedger, RoutedClient
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -3796,6 +3798,8 @@ class Agent:
         )
 
     async def send(self, user_text: str) -> None:
+        if hasattr(self.client, "select_task"):
+            self.client.select_task(user_text)
         self._last_user_message = user_text
         self.messages.append({
             "role": "user",
@@ -5135,6 +5139,7 @@ class App:
         self.client = AgnesClient(
             self.config, self.pool, on_retry=self.ui.retry_notice
         )
+        self._enable_smart_routing()
 
         if _HAS_WEB and not self.args.no_web:
             try:
@@ -5160,7 +5165,77 @@ class App:
             await self._close_all()
         return 0
 
+    def _enable_smart_routing(self) -> None:
+        """Opt-in route config; never send another provider's key to a new API."""
+        config_name = getattr(self.args, "routing_config", None)
+        path = Path(config_name) if config_name else Path("routing.json")
+        if not path.exists():
+            if config_name:
+                raise FileNotFoundError(f"Routing configuration not found: {path}")
+            return
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict) or not raw.get("enabled", False):
+            return
+        raw_routes = raw.get("routes", [])
+        if not isinstance(raw_routes, list):
+            raise ValueError("routing.json routes must be a list")
+        usable: list[ModelRoute] = []
+        api_keys: dict[str, list[str]] = {}
+        for row in raw_routes:
+            route = ModelRoute.from_dict(row)
+            if route.provider not in MODEL_PROVIDERS:
+                raise ValueError(f"Unknown model route provider: {route.provider}")
+            if not route.name or route.name in api_keys:
+                raise ValueError("Routing names must be unique non-empty strings")
+            if route.provider in {"local", "ollama"}:
+                if httpx.URL(route.base_url).host not in {"localhost", "127.0.0.1", "::1"}:
+                    raise ValueError("Local model routes must use a loopback base URL")
+                keys = ["local-no-api-key"]
+            elif route.provider == self.config.provider:
+                keys = self.config.api_keys
+            else:
+                # Unlike the main provider, secondary routes NEVER fall back
+                # to AGNES_API_KEY, which might belong to another vendor.
+                env_name = PROVIDER_API_KEY_ENVS.get(route.provider)
+                keys = _parse_key_list(os.environ.get(env_name) if env_name else None, None, None)
+            if not keys:
+                self.ui.warning(f"Skipping route {route.name}: no provider-specific API key")
+                continue
+            env_name = PROVIDER_BASE_URL_ENVS.get(route.provider)
+            if env_name and os.environ.get(env_name):
+                route = replace(route, base_url=os.environ[env_name])
+            api_keys[route.name] = keys
+            usable.append(route)
+        if not usable:
+            raise ValueError("No configured smart routes have usable API credentials")
+
+        daily_limit = float(raw.get("daily_budget_usd") or 0)
+        ledger = BudgetLedger(self.home / "api_budget.sqlite3", daily_limit) if daily_limit > 0 else None
+
+        def client_for(route: ModelRoute) -> AgnesClient:
+            keys = api_keys[route.name]
+            cfg = replace(
+                self.config, api_keys=keys, provider=route.provider,
+                model=route.model, base_url=route.base_url,
+            )
+            tier = ACCESS_TIERS.get(cfg.tier, ACCESS_TIERS[DEFAULT_TIER])
+            pool = KeyPool(keys, cfg.rpm_override or tier["rpm"])
+            return AgnesClient(cfg, pool, on_retry=self.ui.retry_notice)
+
+        self.client = RoutedClient(
+            self.client, usable, client_for, ledger=ledger, announce=self.ui.info,
+        )
+        self.ui.info(
+            f"Smart model routing enabled: {len(usable)} routes"
+            + (f", estimated daily budget ${daily_limit:.2f} (UTC)" if ledger else ", no budget guard")
+        )
+
     async def _run(self) -> None:
+        if getattr(self.args, "prompt", None) is not None:
+            # Non-interactive, one task, current directory workspace.
+            await self._open(project=None)
+            await self.session.send(self.args.prompt)
+            return
         explicit = self.args.project
         if explicit:
             project = self.manager.find(explicit)
@@ -5603,15 +5678,31 @@ class App:
             )
             return False
 
-        if cmd == "/tokens":
-            total = self.session.prompt_tokens + self.session.completion_tokens
-            cost = self.session.cost_estimate()
-            self.ui.info(
-                f"Prompt: {self.session.prompt_tokens}  ·  "
-                f"Completion: {self.session.completion_tokens}  ·  "
-                f"Total: {total}  ·  "
-                f"Est. cost: ${cost:.4f}"
-            )
+        if cmd in ("/tokens", "/budget"):
+            if isinstance(self.client, RoutedClient) and self.client.ledger is not None:
+                summary = self.client.ledger.summary()
+                self.ui.info(
+                    f"UTC {summary['utc_date']} · "
+                    f"Est. billed: ${summary['charged_estimate_usd']:.4f} · "
+                    f"Pending: ${summary['pending_reserved_usd']:.4f} · "
+                    f"Daily limit: ${summary['budget_usd']:.2f} · "
+                    f"Calls: {summary['calls']}"
+                )
+            else:
+                total = self.session.prompt_tokens + self.session.completion_tokens
+                self.ui.info(
+                    f"Prompt: {self.session.prompt_tokens} · "
+                    f"Completion: {self.session.completion_tokens} · "
+                    f"Total: {total} · No enforced estimated daily USD limit. "
+                    "Set daily_budget_usd in routing.json to enable one."
+                )
+            return False
+        if cmd == "/routes":
+            if isinstance(self.client, RoutedClient):
+                for route in self.client.routes:
+                    self.ui.info(f"{route.name}: {route.provider}/{route.model} → {', '.join(route.tasks)}")
+            else:
+                self.ui.info("Smart model routing is off (create routing.json to enable).")
             return False
 
         if cmd == "/limits":
@@ -5793,6 +5884,16 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         choices=sorted(MODEL_PROVIDERS.keys()),
         default=os.environ.get("AGNES_PROVIDER"),
         help="Model provider backend to target.",
+    )
+    p.add_argument(
+        "--routing-config",
+        default=os.environ.get("AGNES_ROUTING_CONFIG"),
+        help="Optional JSON file for task routing and estimated USD spending limits.",
+    )
+    p.add_argument(
+        "--prompt",
+        default=None,
+        help="Execute one prompt in the current directory and exit (benchmark/CI use).",
     )
     p.add_argument(
         "--project",
