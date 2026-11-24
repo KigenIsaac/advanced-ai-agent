@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import contextvars
 import json
+import math
 import re
 import sqlite3
 import time
@@ -44,7 +45,7 @@ class ModelRoute:
             raise ValueError("route tasks must be a non-empty array of strings")
         rates = (float(data["input_per_million_usd"]),
                  float(data["output_per_million_usd"]))
-        if not all(0 <= x < 1000 for x in rates):
+        if not all(math.isfinite(x) and 0 <= x < 1000 for x in rates):
             raise ValueError("route pricing must be between 0 and 1000 USD per million tokens")
         quality = data.get("quality", {})
         if not isinstance(quality, dict) or not all(
@@ -118,7 +119,7 @@ class BudgetLedger:
     def __init__(self, path: str | Path, daily_budget_usd: float):
         self.path = Path(path)
         self.daily_budget_usd = float(daily_budget_usd)
-        if not 0 < self.daily_budget_usd <= 1_000_000:
+        if not math.isfinite(self.daily_budget_usd) or not 0 < self.daily_budget_usd <= 1_000_000:
             raise ValueError("daily_budget_usd must be positive and finite")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._conn() as db:
@@ -267,17 +268,20 @@ class RoutedClient:
     async def stream_chat(self, messages: list[dict], **kwargs):
         route = self._current.get()
         if route is None:
-            # If no user task was explicitly selected, default to normal model.
-            async for chunk in self.primary.stream_chat(messages, **kwargs):
-                yield chunk
-            return
+            # An unselected direct client call must not bypass the budget.
+            last_user = next(
+                (m.get("content", "") for m in reversed(messages)
+                 if m.get("role") == "user"), ""
+            )
+            self.select_task(str(last_user))
+            route = self._current.get()
         client = self._clients.get(route.name)
         if client is None:
             client = self._factory(route)
             self._clients[route.name] = client
 
         reservation = None
-        if self.ledger is not None:
+        if self.ledger is not None and route.provider not in {"local", "ollama"}:
             reservation = self.ledger.reserve(route, messages, kwargs.get("max_tokens", 16384))
         usage = None
         try:
