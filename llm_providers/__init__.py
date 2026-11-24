@@ -23,6 +23,8 @@ PROVIDER_CLASSES = {
     "local": LocalModelProvider,
     "openrouter": OpenRouterProvider,
     "deepseek": DeepSeekProvider,
+    "qwen": OpenAICompatibleProvider,
+    "kimi": OpenAICompatibleProvider,
     "groq": GroqProvider,
     "mistral": MistralProvider,
     "together": TogetherProvider,
