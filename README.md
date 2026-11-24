@@ -617,3 +617,37 @@ Software Developer focused on:
 ## ⭐ Status
 
 This project is actively evolving as an exploration of autonomous software-engineering systems.
+
+
+## Lower-cost Chinese model APIs (local orchestration)
+
+The coding agent runs on your own computer. **DeepSeek, Qwen and Kimi inference is remote** when you use their APIs; prompts, selected code and tool context can leave your device. Ollama remains available for fully local inference.
+
+```bash
+# DeepSeek (current API model)
+export AGNES_PROVIDER=deepseek
+export DEEPSEEK_API_KEY=your_secret_key
+python main.py --max-rounds 20
+
+# Qwen via Alibaba Cloud Model Studio
+export AGNES_PROVIDER=qwen
+export DASHSCOPE_API_KEY=your_secret_key
+export QWEN_BASE_URL=https://YOUR_WORKSPACE_ID.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1
+python main.py --max-rounds 20
+
+# Kimi via Moonshot AI
+export AGNES_PROVIDER=kimi
+export MOONSHOT_API_KEY=your_secret_key
+python main.py --max-rounds 20
+```
+
+On Windows PowerShell, use `$env:AGNES_PROVIDER="deepseek"` syntax instead of `export`. Alternatively configure the matching variables in a **local, uncommitted** `.env` file.
+
+- The default Qwen base URL in `providers.json` is the older international compatibility endpoint. **Prefer `QWEN_BASE_URL` set to your actual regional workspace endpoint**, as documented by Alibaba Cloud; API keys must match that region.
+- `--provider` selects the model vendor. `--model` and `--base-url` explicitly override its defaults.
+- Credentials resolve in this order: explicit `--api-key`/`--api-keys`, selected provider key (`DEEPSEEK_API_KEY`, `DASHSCOPE_API_KEY`, or `MOONSHOT_API_KEY`), then generic `AGNES_API_KEY`. Keys from different vendors are never automatically mixed.
+- Use `--max-rounds 20` or `AGNES_MAX_ROUNDS=20` to reduce runaway agent loops and API spend. This is **not** a monetary spending limit; configure provider account budgets separately.
+- For `--provider ollama` or `local`, a keyless endpoint is accepted only on loopback (`localhost`, `127.0.0.1`, or `::1`).
+- API model availability and prices change; verify models with the provider before spending. Models listed here are starter defaults, not a guarantee of superior coding benchmark scores.
+
+Official references: [DeepSeek API pricing and models](https://api-docs.deepseek.com/quick_start/pricing/), [Alibaba Model Studio OpenAI compatibility](https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-chat-completions), [Kimi provider API](https://www.kimi.com/code/docs/en/kimi-code-cli/configuration/providers).
