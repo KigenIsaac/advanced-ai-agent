@@ -121,6 +121,8 @@ MODEL_PROVIDERS = {
     "local": "Local model API",
     "openrouter": "OpenRouter",
     "deepseek": "DeepSeek",
+    "qwen": "Alibaba Cloud Qwen",
+    "kimi": "Moonshot AI Kimi",
     "groq": "Groq",
     "mistral": "Mistral",
     "together": "Together AI",
@@ -138,7 +140,9 @@ PROVIDER_DEFAULT_MODELS = {
     "gemini": "gemini-2.0-flash",
     "local": "llama3.1",
     "openrouter": "openai/gpt-4o-mini",
-    "deepseek": "deepseek-chat",
+    "deepseek": "deepseek-flash",
+    "qwen": "qwen3.7-plus",
+    "kimi": "kimi-k2.5",
     "groq": "llama-3.1-70b-versatile",
     "mistral": "mistral-small-latest",
     "together": "meta-llama/Llama-3.1-70B-Instruct-Turbo",
@@ -157,6 +161,8 @@ PROVIDER_DEFAULT_BASE_URLS = {
     "local": "http://localhost:11434/v1",
     "openrouter": "https://openrouter.ai/api/v1",
     "deepseek": "https://api.deepseek.com",
+    "qwen": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+    "kimi": "https://api.moonshot.ai/v1",
     "groq": "https://api.groq.com/openai/v1",
     "mistral": "https://api.mistral.ai/v1",
     "together": "https://api.together.xyz/v1",
@@ -165,6 +171,20 @@ PROVIDER_DEFAULT_BASE_URLS = {
     "perplexity": "https://api.perplexity.ai",
     "fireworks": "https://api.fireworks.ai/inference/v1",
     "xai": "https://api.x.ai/v1",
+}
+
+# Provider-specific environment variables take priority over the generic Agnes
+# defaults. Qwen users should set QWEN_BASE_URL to their regional, workspace-
+# specific Alibaba Model Studio endpoint (the built-in value is a legacy URL).
+PROVIDER_API_KEY_ENVS = {
+    "deepseek": "DEEPSEEK_API_KEY",
+    "qwen": "DASHSCOPE_API_KEY",
+    "kimi": "MOONSHOT_API_KEY",
+}
+PROVIDER_BASE_URL_ENVS = {
+    "deepseek": "DEEPSEEK_BASE_URL",
+    "qwen": "QWEN_BASE_URL",
+    "kimi": "MOONSHOT_BASE_URL",
 }
 
 
@@ -5066,19 +5086,25 @@ class App:
     async def start(self) -> int:
         await self._ensure_provider_choice()
 
-        keys = _parse_key_list(
-            single=os.environ.get("AGNES_API_KEY"),
+        settings = self.settings
+        keys = resolve_provider_api_keys(
+            settings["provider"],
             many=self.args.api_keys,
             repeated=self.args.api_key,
         )
+        if not keys and settings["provider"] in {"local", "ollama"}:
+            # Only permit credential-free local inference on loopback, not on
+            # remote OpenAI-compatible endpoints.
+            if httpx.URL(settings["base_url"]).host in {"localhost", "127.0.0.1", "::1"}:
+                keys = ["local-no-api-key"]
         if not keys:
             self.ui.error(
-                "No API key. Set AGNES_API_KEY or AGNES_API_KEYS, put them in "
-                ".env, or pass --api-key (repeatable) / --api-keys k1,k2,k3."
+                "No API key for the selected provider. Set its provider-specific "
+                "environment variable (e.g. DEEPSEEK_API_KEY, DASHSCOPE_API_KEY, "
+                "MOONSHOT_API_KEY), AGNES_API_KEY, or pass --api-key."
             )
             return 2
 
-        settings = self.settings
         tier = ACCESS_TIERS.get(settings["tier"], ACCESS_TIERS[DEFAULT_TIER])
         rpm_per_key = settings["rpm"] or tier["rpm"]
 
@@ -5716,6 +5742,27 @@ def _parse_key_list(
     return out
 
 
+def resolve_provider_api_keys(
+    provider: str,
+    *,
+    many: Optional[str] = None,
+    repeated: Optional[list[str]] = None,
+) -> list[str]:
+    """Prefer explicit CLI keys, then this provider's key, then the fallback.
+
+    Never combine keys from unrelated providers in one rotating pool.
+    """
+    if many or repeated:
+        return _parse_key_list(single=None, many=many, repeated=repeated)
+    env_name = PROVIDER_API_KEY_ENVS.get(provider, "")
+    selected = os.environ.get(env_name) if env_name else None
+    return _parse_key_list(
+        single=selected or os.environ.get("AGNES_API_KEY"),
+        many=None,
+        repeated=None,
+    )
+
+
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="agnes-agent",
@@ -5761,17 +5808,17 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         "--api-key",
         action="append",
         default=None,
-        help="Agnes API key. Repeat to provide multiple keys.",
+        help="Selected provider API key. Repeat to provide multiple keys.",
     )
     p.add_argument(
         "--api-keys",
         default=os.environ.get("AGNES_API_KEYS"),
-        help="Comma-separated list of Agnes API keys.",
+        help="Comma-separated API keys for the selected provider.",
     )
     p.add_argument(
         "--base-url",
-        default=os.environ.get("AGNES_BASE_URL", DEFAULT_BASE_URL),
-        help=f"Agnes API base URL (default: {DEFAULT_BASE_URL}).",
+        default=None,
+        help="Override provider API base URL (otherwise use environment or provider defaults).",
     )
     p.add_argument(
         "--model",
@@ -6004,13 +6051,21 @@ def resolve_runtime_settings(args: argparse.Namespace) -> dict[str, Any]:
         return value
 
     provider_cfg = provider_defaults.get(provider_value, {}) if isinstance(provider_defaults, dict) else {}
-    default_base_url = provider_cfg.get("base_url") or PROVIDER_DEFAULT_BASE_URLS.get(provider_value, DEFAULT_BASE_URL)
+    provider_env_name = PROVIDER_BASE_URL_ENVS.get(provider_value, "")
+    provider_env_url = os.environ.get(provider_env_name) if provider_env_name else None
+    default_base_url = (
+        provider_env_url
+        or os.environ.get("AGNES_BASE_URL")
+        or profile.get("base_url")
+        or provider_cfg.get("base_url")
+        or PROVIDER_DEFAULT_BASE_URLS.get(provider_value, DEFAULT_BASE_URL)
+    )
     default_model = provider_cfg.get("model") or PROVIDER_DEFAULT_MODELS.get(provider_value, DEFAULT_MODEL)
     configured = {
         "provider": provider_value,
         "agent_name": pick("agent_name", profile.get("agent_name", DEFAULT_AGENT_NAME), cast=str),
         "agent_tagline": pick("agent_tagline", profile.get("agent_tagline", DEFAULT_AGENT_TAGLINE), cast=str),
-        "base_url": pick("base_url", profile.get("base_url", default_base_url), cast=str),
+        "base_url": str(getattr(args, "base_url", None) or default_base_url),
         "model": pick("model", profile.get("model", default_model), cast=str),
         "temperature": pick("temperature", profile.get("temperature", 0.3), cast=float),
         "max_tokens": pick("max_tokens", profile.get("max_tokens", DEFAULT_MAX_TOKENS), cast=int),
