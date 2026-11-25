@@ -146,3 +146,27 @@ def test_negative_price_and_budget_rejected(tmp_path):
         route(input_price=-1)
     with pytest.raises(ValueError):
         BudgetLedger(tmp_path / "x.db", 0)
+
+
+def test_explicit_planner_role_overrides_coding_prompt():
+    planner = route("planner", tasks=["planning"])
+    coder = route("coder", tasks=["coding"])
+    selected, task = choose_route([coder, planner], "Implement a function", task_hint="planning")
+    assert selected == planner
+    assert task == "planning"
+
+
+def test_tool_schema_counts_toward_reservation(tmp_path):
+    ledger = BudgetLedger(tmp_path / "ledger.db", 0.001)
+    x = route(input_price=100, output_price=100)
+    with pytest.raises(BudgetExceeded):
+        ledger.reserve(x, [], 1, tools=[{"description": "x" * 100}])
+
+
+def test_invalid_usage_preserves_reservation(tmp_path):
+    ledger = BudgetLedger(tmp_path / "ledger.db", 1.0)
+    x = route()
+    key = ledger.reserve(x, [], 100)
+    reserved = ledger.summary()["pending_reserved_usd"]
+    ledger.finish(key, x, {"prompt_tokens": -1, "completion_tokens": 0})
+    assert ledger.summary()["charged_estimate_usd"] == reserved
