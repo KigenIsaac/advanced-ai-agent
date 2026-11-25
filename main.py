@@ -3797,9 +3797,9 @@ class Agent:
             + self.completion_tokens / 1_000_000 * PRICE_OUTPUT
         )
 
-    async def send(self, user_text: str) -> None:
+    async def send(self, user_text: str, *, task_hint: Optional[str] = None, routing_context: Optional[str] = None) -> None:
         if hasattr(self.client, "select_task"):
-            self.client.select_task(user_text)
+            self.client.select_task(routing_context or user_text, task_hint=task_hint)
         self._last_user_message = user_text
         self.messages.append({
             "role": "user",
@@ -4116,7 +4116,7 @@ class Planner(Agent):
 
     async def plan(self, task: str) -> TodoList:
         self.ui.planner_start()
-        await self.send(task)
+        await self.send(task, task_hint="planning")
 
         data = self._extract_plan()
         todos = self._parse_todos(data)
@@ -4134,7 +4134,7 @@ class Planner(Agent):
                 f"Expand it to at least {TARGET_TODOS} top-level todos, each "
                 f"with at least {TARGET_SUBTASKS} substantive subtasks. "
                 f"Keep every todo narrow and verifiable. Respond with ONLY "
-                f"valid JSON in the same schema."
+                f"valid JSON in the same schema.", task_hint="planning"
             )
             try:
                 data = self._extract_plan()
@@ -4356,7 +4356,8 @@ class Swarm:
                 started = time.time()
                 try:
                     await worker.send(
-                        f"Execute todo {todo.id}. Begin now."
+                        f"Execute todo {todo.id}. Begin now.",
+                        routing_context=f"{todo.title}\n{todo.description}\n{todo.worker_prompt}"
                     )
                     final = worker.final_message()
                     todo.result = sanitize_text(final)
@@ -4426,7 +4427,7 @@ class Swarm:
         )
 
         try:
-            await summarizer.send(user_text)
+            await summarizer.send(user_text, task_hint="review")
             for msg in reversed(summarizer.messages):
                 if msg.get("role") == "assistant" and msg.get("content"):
                     plan.report = msg["content"]
@@ -5139,7 +5140,11 @@ class App:
         self.client = AgnesClient(
             self.config, self.pool, on_retry=self.ui.retry_notice
         )
-        self._enable_smart_routing()
+        try:
+            self._enable_smart_routing()
+        except Exception:
+            await self.client.close()
+            raise
 
         if _HAS_WEB and not self.args.no_web:
             try:
@@ -5168,7 +5173,7 @@ class App:
     def _enable_smart_routing(self) -> None:
         """Opt-in route config; never send another provider's key to a new API."""
         config_name = getattr(self.args, "routing_config", None)
-        path = Path(config_name) if config_name else Path("routing.json")
+        path = Path(config_name).expanduser() if config_name else self.home / "routing.json"
         if not path.exists():
             if config_name:
                 raise FileNotFoundError(f"Routing configuration not found: {path}")
@@ -5210,6 +5215,8 @@ class App:
             raise ValueError("No configured smart routes have usable API credentials")
 
         daily_limit = float(raw.get("daily_budget_usd") or 0)
+        if daily_limit != 0 and not (0 < daily_limit <= 1_000_000):
+            raise ValueError("daily_budget_usd must be zero (disabled) or a positive finite limit")
         ledger = BudgetLedger(self.home / "api_budget.sqlite3", daily_limit) if daily_limit > 0 else None
 
         def client_for(route: ModelRoute) -> AgnesClient:
@@ -5217,6 +5224,8 @@ class App:
             cfg = replace(
                 self.config, api_keys=keys, provider=route.provider,
                 model=route.model, base_url=route.base_url,
+                # A retry may be billed again; do not retry automatically with a cap.
+                max_retries=0 if ledger is not None else self.config.max_retries,
             )
             tier = ACCESS_TIERS.get(cfg.tier, ACCESS_TIERS[DEFAULT_TIER])
             pool = KeyPool(keys, cfg.rpm_override or tier["rpm"])
@@ -5304,7 +5313,7 @@ class App:
             loaded = project.load_current_conversation()
         else:
             loaded = self.chat_store.load_current()
-        if loaded:
+        if loaded and getattr(self.args, "prompt", None) is None:
             self.session.messages = _normalize_messages_for_api(loaded)
             self.ui.info(f"Resumed conversation ({len(loaded)} messages).")
 
@@ -5702,7 +5711,7 @@ class App:
                 for route in self.client.routes:
                     self.ui.info(f"{route.name}: {route.provider}/{route.model} → {', '.join(route.tasks)}")
             else:
-                self.ui.info("Smart model routing is off (create routing.json to enable).")
+                self.ui.info("Smart model routing is off (use --routing-config or ~/.agnes/routing.json).")
             return False
 
         if cmd == "/limits":
