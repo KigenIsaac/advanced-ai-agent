@@ -5,7 +5,7 @@ import json
 import tokenize
 from xml.etree.ElementTree import ParseError
 
-from . import analyzers, formats, operations, workflows
+from . import analyzers, formats, operations, workflows, system
 from collections import Counter
 
 MAX_INPUT = 32_768
@@ -28,6 +28,7 @@ SKILLS = {
 DESCRIPTIONS = {name: tool.__doc__ for name, (_, tool) in SKILLS.items()}
 DESCRIPTIONS.update(analyzers.describe())
 DESCRIPTIONS.update(workflows.DESCRIPTIONS)
+DESCRIPTIONS.update(system.DESCRIPTIONS)
 GROUP_COUNTS = dict(Counter(name.split("_", 1)[0] for name in DESCRIPTIONS))
 
 
@@ -42,8 +43,9 @@ SCHEMAS = [
             {"group": {"type": "string", "enum": list(GROUP_COUNTS)}, "query": {"type": "string"},
              "offset": {"type": "integer", "minimum": 0},
              "limit": {"type": "integer", "minimum": 1, "maximum": 50}}, []),
-    _schema("skill_run", "Run one catalog skill. For web, document and project skills, pass the options listed by skill_catalog. Other skills take exactly one of text or path. A workspace-relative path reads UTF-8 locally and preserves line endings.",
-            {"skill": {"type": "string"}, "text": {"type": "string", "maxLength": MAX_INPUT}, "path": {"type": "string"}, "options": {"type":"object"}}, ["skill"]),
+    _schema("skill_run", "Run one catalog skill. Use options only when the catalog lists Options. All other skills take exactly one of text or path. A workspace-relative path reads UTF-8 locally and preserves line endings.",
+            {"skill": {"type": "string"}, "text": {"type": "string", "maxLength": MAX_INPUT}, "path": {"type": "string"}, "options": {"type":"object"},
+             "output": {"type":"string","description":"Optional new workspace output file for project design skills with text/path input."}}, ["skill"]),
 ]
 
 
@@ -79,9 +81,12 @@ def run(skill, text):
     try:
         text.encode("utf-8")
         source = text if skill.startswith("text_") else text.removeprefix("\ufeff")
-        if skill not in SKILLS:
+        if skill in system.TOOLS:
+            parser, tool = system.TOOLS[skill]
+        elif skill not in SKILLS:
             return analyzers.analyze(skill, source)
-        parser, tool = SKILLS[skill]
+        else:
+            parser, tool = SKILLS[skill]
         document = parser(source)
         if parser in (formats.json_value, formats.manifest):
             # Also enforce the nesting limit for formatting and metadata tools.
@@ -93,6 +98,6 @@ def run(skill, text):
             if size > MAX_RESULT:
                 return {"error": "result_too_large", "message": "run on a smaller document"}
         return {"skill": skill, "result": result}
-    except (ValueError, SyntaxError, RecursionError, csv.Error, configparser.Error,
+    except (KeyError, TypeError, ValueError, SyntaxError, RecursionError, csv.Error, configparser.Error,
             ParseError, tokenize.TokenError) as exc:
         return {"error": "invalid_input", "message": str(exc)[:400]}
