@@ -86,12 +86,14 @@ def classify_task(text: str) -> str:
     return "general"
 
 
-def choose_route(routes: list[ModelRoute], prompt: str) -> tuple[ModelRoute, str]:
+def choose_route(routes: list[ModelRoute], prompt: str, *, task_hint: Optional[str] = None) -> tuple[ModelRoute, str]:
     """Prefer cheaper eligible routes; measured quality can raise harder tasks.
 
     Quality scores are supplied by a user-run benchmark, never fabricated.
     """
-    task = classify_task(prompt)
+    task = task_hint or classify_task(prompt)
+    if task not in {"general", "coding", "debug", "planning", "review", "security"}:
+        raise ValueError(f"Unknown task hint: {task!r}")
     eligible = [r for r in routes if task in r.tasks or "all" in r.tasks]
     if not eligible:
         eligible = [r for r in routes if "general" in r.tasks or "all" in r.tasks]
@@ -140,13 +142,17 @@ class BudgetLedger:
         import math
         return max(0, math.ceil(usd * 1_000_000))
 
-    def reserve(self, route: ModelRoute, messages: list[dict], max_tokens: int) -> str:
+    def reserve(self, route: ModelRoute, messages: list[dict], max_tokens: int, *, tools: Optional[list[dict]] = None) -> str:
         if route.input_per_million_usd <= 0 or route.output_per_million_usd <= 0:
             # Zero-price local providers should not be used for this paid ledger.
             raise ValueError("Configured monetary budgets require positive rates for every routed cloud model")
         # Approximation: one charged input token per JSON character (normally
         # a substantial overestimate for English), plus max output tokens.
-        chars = len(json.dumps(messages, ensure_ascii=False, default=str))
+        if max_tokens <= 0:
+            raise ValueError("max_tokens must be positive")
+        chars = len(json.dumps(messages, ensure_ascii=False, default=str).encode("utf-8"))
+        if tools:
+            chars += len(json.dumps(tools, ensure_ascii=False, default=str).encode("utf-8"))
         reserve_usd = route.projected_usd(max(1, chars), max(1, int(max_tokens)))
         reserved = self._micros(reserve_usd)
         cap = self._micros(self.daily_budget_usd)
@@ -182,7 +188,7 @@ class BudgetLedger:
         if usage:
             prompt = usage.get("prompt_tokens")
             completion = usage.get("completion_tokens")
-            if isinstance(prompt, (int, float)) and isinstance(completion, (int, float)):
+            if all(isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in (prompt, completion)):
                 charged = self._micros(route.projected_usd(prompt, completion))
         with self._conn() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -250,8 +256,8 @@ class RoutedClient:
         client = self._clients.get(route.name) if route else self.primary
         return getattr(client, "last_key_label", "—")
 
-    def select_task(self, prompt: str) -> None:
-        route, task = choose_route(self.routes, prompt)
+    def select_task(self, prompt: str, *, task_hint: Optional[str] = None) -> None:
+        route, task = choose_route(self.routes, prompt, task_hint=task_hint)
         self._current.set(route)
         self.last_route = route
         if self.announce:
@@ -259,6 +265,11 @@ class RoutedClient:
 
     def pool_totals(self) -> dict:
         return self.primary.pool_totals()
+
+    def pool_status(self) -> list[dict]:
+        route = self._current.get()
+        client = self._clients.get(route.name, self.primary) if route else self.primary
+        return client.pool_status()
 
     async def close(self) -> None:
         for client in self._clients.values():
@@ -282,13 +293,15 @@ class RoutedClient:
 
         reservation = None
         if self.ledger is not None and route.provider not in {"local", "ollama"}:
-            reservation = self.ledger.reserve(route, messages, kwargs.get("max_tokens", 16384))
+            reservation = self.ledger.reserve(route, messages, kwargs.get("max_tokens", 16384), tools=kwargs.get("tools"))
         usage = None
+        completed = False
         try:
             async for chunk in client.stream_chat(messages, **kwargs):
                 if isinstance(chunk, dict) and isinstance(chunk.get("usage"), dict):
                     usage = chunk["usage"]
                 yield chunk
+            completed = True
         finally:
             if reservation is not None:
-                self.ledger.finish(reservation, route, usage)
+                self.ledger.finish(reservation, route, usage if completed else None)
