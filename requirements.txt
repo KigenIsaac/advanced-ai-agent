@@ -7,3 +7,4 @@ ruff==0.11.13
 sqlfluff==3.4.2
 python-docx>=1.1.2,<2
 pypdf>=6.1,<7
+aiohttp>=3.12,<4

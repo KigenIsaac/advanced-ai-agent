@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Agnes · Agent workspace</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to workspace</a>
+    <div class="layout">
+      <aside>
+        <div class="brand">
+          <span class="mark" aria-hidden="true">✳</span
+          ><strong>Agnes<span>.</span></strong>
+        </div>
+        <nav aria-label="Workspace navigation">
+          <button data-view="session" aria-current="page">
+            <span>◈</span> Session</button
+          ><button data-view="skills"><span>▦</span> Skill library</button
+          ><button data-view="tools"><span>⌘</span> Tools</button>
+        </nav>
+        <div class="navFoot"><i></i> Local runtime</div>
+      </aside>
+      <main id="main">
+        <header>
+          <div class="crumb">
+            Workspace <b>/</b> <span id="crumb">Session</span>
+          </div>
+          <span id="connection" role="status">Connecting…</span>
+        </header>
+        <section id="session">
+          <div class="intro">
+            <div>
+              <h1 id="project">Agent workspace</h1>
+              <p id="context">Starting the local session…</p>
+            </div>
+            <button class="subtle" id="projects" disabled>
+              Switch project
+            </button>
+          </div>
+          <div class="metrics">
+            <div><small>Provider</small><strong id="provider">—</strong></div>
+            <div><small>Mode</small><strong id="mode">—</strong></div>
+            <div>
+              <small>Session tokens</small><strong id="tokens">—</strong>
+            </div>
+          </div>
+          <div class="sessionBar">
+            <h2>Conversation</h2>
+            <div>
+              <button class="subtle" id="history" disabled>History</button
+              ><button class="subtle" id="new" disabled>New chat</button>
+            </div>
+          </div>
+          <div
+            id="feed"
+            tabindex="0"
+            aria-label="Conversation and activity"
+          ></div>
+          <section id="promptBox">
+            <h3 id="question">Session input</h3>
+            <div id="choices"></div>
+            <form id="composer">
+              <label for="message" class="sr">Your response</label
+              ><textarea
+                id="message"
+                rows="2"
+                maxlength="32000"
+                disabled
+                placeholder="Waiting for the agent…"
+              ></textarea>
+              <div class="composeFoot">
+                <div class="runOptions">
+                  <select id="runMode" aria-label="Run mode" hidden>
+                    <option value="single">Single agent</option>
+                    <option value="swarm">Swarm</option></select
+                  ><span>Shift+Enter for a new line</span>
+                </div>
+                <button id="send" disabled>Send <b>↗</b></button>
+              </div>
+            </form>
+          </section>
+        </section>
+        <section id="skills" hidden>
+          <div class="intro">
+            <div>
+              <h1>Skill library</h1>
+              <p id="skillCount"></p>
+            </div>
+          </div>
+          <div class="filters">
+            <input
+              type="search"
+              id="search"
+              placeholder="Search skills or rule codes"
+              aria-label="Search skills"
+            /><select id="group" aria-label="Skill group">
+              <option value="">All groups</option>
+            </select>
+          </div>
+          <div id="results"></div>
+          <button id="more" class="subtle" hidden>Load more</button>
+        </section>
+        <section id="tools" hidden>
+          <div class="intro">
+            <div>
+              <h1>Session tools</h1>
+              <p>Manage the tools available to this session.</p>
+            </div>
+          </div>
+          <div id="toolList"></div>
+        </section>
+        <p id="alert" role="alert"></p>
+      </main>
+    </div>
+  </body>
+</html>
