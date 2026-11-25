@@ -2628,6 +2628,8 @@ class ToolRegistry:
                     return {"error": "invalid_input", "message": str(exc)[:400]}
                 arguments = {"skill": arguments["skill"], "text": text}
             try:
+                if name == "skill_run":
+                    return await asyncio.to_thread(handler, **arguments)
                 return handler(**arguments)
             except TypeError as exc:
                 return {"error": "invalid_arguments", "message": str(exc)}
