@@ -743,3 +743,23 @@ python benchmark_agents.py \
 The reference CLI must be installed and authenticated, and configured to permit editing the disposable benchmark workspace without interactive prompts. Do not grant it access to unrelated files. Each case gets an independent workspace and agent home; the evaluator checks actual behavior rather than trusting a completion claim. This runs paid requests if configured; the agent's temporary home has an independent ledger per case, so the example daily limit is **per case**, not a shared benchmark-wide cap. Provider account limits remain important.
 
 The three initial tasks cover decimal arithmetic, stable deduplication and path validation. Output includes agent/check logs, JSON pass/fail results, runtime, and estimated ledger cost if present; reference CLI costs are unknown unless independently measured. This is a small smoke benchmark, not SWE-bench or proof of superiority over Claude Code. Expand to representative multi-file tasks before drawing conclusions. No paid benchmark is run automatically in CI.
+
+### VPS web research
+
+Search works even when Chromium fails to launch. Set `WEB_SEARCH_MODE=free` in
+the VPS process environment to exclude SerpAPI from routing. With a Tavily key
+or SearXNG endpoint configured, the same free-provider route is automatic.
+
+* Set `SEARXNG_URL` to a trusted, self-hosted SearXNG base URL with JSON output
+  enabled for search without per-query API fees. Hosting and network costs apply.
+* In Settings → Service → Search and read · Tavily, enter a **free-plan** key,
+  or set `TAVILY_API_KEY` on the VPS. Keep pay-as-you-go disabled in Tavily.
+  The agent uses basic search and basic extraction. The application cannot
+  detect whether the account attached to a key allows paid usage.
+* Search tries SearXNG first, then Tavily for first-page web/news queries,
+  then the keyless DuckDuckGo HTML endpoint. DuckDuckGo availability varies.
+  The result names the backend that answered. The legacy SerpAPI path remains
+  available when these integrations and free mode are unset.
+* Use the browser tool's `read_url` action to send a public page URL to Tavily
+  and retrieve text without a local browser. Interactive actions such as
+  clicking, typing, and screenshots still require working Chromium.

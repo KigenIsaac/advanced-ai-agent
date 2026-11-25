@@ -44,7 +44,7 @@ WEB_BROWSER_SCHEMA = {
     "function": {
         "name": "web_browser",
         "description": (
-            "Operate a real Chromium browser. Actions cover navigation, "
+            "Use read_url with a public URL for browser-free Tavily page text. Other actions operate Chromium: navigation, "
             "interaction, extraction, JS evaluation, screenshots, downloads, "
             "tabs, forms, frames, network inspection, and accessibility."
         ),
@@ -57,7 +57,7 @@ WEB_BROWSER_SCHEMA = {
                         # navigation
                         "open", "back", "forward", "reload", "wait",
                         # extraction
-                        "get_text", "get_html", "get_dom", "get_metadata",
+                        "read_url", "get_text", "get_html", "get_dom", "get_metadata",
                         "get_url", "get_title", "get_links",
                         "get_interactive", "get_accessibility",
                         "semantic_snapshot", "get_headings", "find_main",

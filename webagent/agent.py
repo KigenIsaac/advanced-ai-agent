@@ -14,16 +14,24 @@ class WebAgent:
     def __init__(self, *, headless: bool = True,
                  downloads_dir: str = "./downloads",
                  serpapi_key: Optional[str] = None,
-                 proxy: Optional[str] = None):
-        self.search_engine = WebSearch(serpapi_key=serpapi_key, proxy=proxy)
+                 proxy: Optional[str] = None, tavily_key: Optional[str] = None):
+        self.search_engine = WebSearch(serpapi_key=serpapi_key, proxy=proxy, tavily_key=tavily_key)
+        self.browser_unavailable = False
         self.browser = BrowserEngine(headless=headless, downloads_dir=downloads_dir)
 
     async def start(self):
-        await self.browser.start()
+        try:
+            await self.browser.start()
+        except Exception:
+            self.browser_unavailable = True
+            await self.browser.close()
 
     async def close(self):
-        await self.browser.close()
-        await self.search_engine.close()
+        try:
+            if not self.browser_unavailable:
+                await self.browser.close()
+        finally:
+            await self.search_engine.close()
 
     async def __aenter__(self):
         await self.start()
@@ -49,6 +57,11 @@ class WebAgent:
     async def web_browser(self, action: str, **kw) -> dict:
         b = self.browser
         try:
+            if action == "read_url":
+                return await self.search_engine.read_url(kw["url"])
+            if self.browser_unavailable:
+                return {"error": "browser_unavailable", "action": action,
+                        "message": "Chromium could not start. Use web_search or read_url for research."}
             return await self._dispatch(b, action, kw)
         except CaptchaDetected:
             return {"error": "captcha_required",

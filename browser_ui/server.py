@@ -416,6 +416,11 @@ def application(ui, token, authority):
                     ui.app.web_agent.search_engine.serpapi_key = (
                         await ui.credentials.read("search") or os.getenv("SERPAPI_KEY")
                     )
+                if name == "tavily" and ui.app.web_agent:
+                    import os
+                    ui.app.web_agent.search_engine.tavily_key = (
+                        await ui.credentials.read(name) or os.getenv("TAVILY_API_KEY")
+                    )
                 return web.Response(status=204)
             return web.json_response(await ui.credentials.status(name))
         except VaultUnavailable:
@@ -424,8 +429,8 @@ def application(ui, token, authority):
             raise web.HTTPBadRequest(text="Invalid credential or destination.")
 
     app = web.Application(middlewares=[guard], client_max_size=160000)
-    app.router.add_get("/api/settings/{name:provider|search}", credential)
-    app.router.add_post("/api/settings/{name:provider|search}", credential)
+    app.router.add_get("/api/settings/{name:provider|search|tavily}", credential)
+    app.router.add_post("/api/settings/{name:provider|search|tavily}", credential)
     app.router.add_get("/api/state", state)
     app.router.add_post("/api/input", respond)
     app.router.add_get("/api/skills", catalog)

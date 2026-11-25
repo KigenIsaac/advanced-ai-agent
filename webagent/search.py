@@ -43,8 +43,11 @@ def _clean_ddg_url(href: str) -> str:
 
 class WebSearch:
     def __init__(self, serpapi_key: Optional[str] = None,
-                 proxy: Optional[str] = None, timeout: float = 15.0):
+                 proxy: Optional[str] = None, timeout: float = 15.0, tavily_key: Optional[str] = None):
         self.serpapi_key = serpapi_key or os.getenv("SERPAPI_KEY")
+        self.tavily_key = tavily_key or os.getenv("TAVILY_API_KEY")
+        self.searxng_url = os.getenv("SEARXNG_URL", "").rstrip("/")
+        self.free_only = os.getenv("WEB_SEARCH_MODE", "").lower() == "free"
         self.timeout = timeout
         self._client = httpx.AsyncClient(
             headers={"User-Agent": DEFAULT_UA, "Accept-Language": "en-US,en;q=0.9"},
@@ -110,8 +113,10 @@ class WebSearch:
 
         r = await self._client.post(DDG_HTML, data=data)
         r.raise_for_status()
-        soup = BeautifulSoup(r.text, "lxml")
+        soup = BeautifulSoup(r.text, "html.parser")
 
+        if r.status_code == 202 or soup.select_one("form#challenge-form"):
+            raise RuntimeError("DuckDuckGo requires verification. Configure a free search API or SearXNG.")
         results = []
         for div in soup.select(".result, .web-result"):
             a = div.select_one(".result__a, a.result__a")
@@ -195,6 +200,53 @@ class WebSearch:
     # Public API
     # ------------------------------------------------------------------ #
 
+    async def _tavily(self, endpoint, payload):
+        response = await self._client.post(
+            "https://api.tavily.com/" + endpoint, json=payload, follow_redirects=False,
+            headers={"Authorization": "Bearer " + self.tavily_key},
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def read_url(self, url):
+        parts = urlparse(url)
+        if parts.scheme not in {"http", "https"} or not parts.hostname or parts.username or parts.password:
+            raise ValueError("Provide a public HTTP(S) URL without embedded credentials.")
+        if not self.tavily_key:
+            raise ValueError("Configure a free-plan Tavily key to read pages without Chromium.")
+        data = await self._tavily("extract", {"urls": [url], "extract_depth": "basic"})
+        for item in data.get("results", []):
+            if item.get("raw_content"):
+                content = item["raw_content"]
+                return {"url": item["url"], "text": content[:32000],
+                        "truncated": len(content) > 32000, "backend": "tavily"}
+        raise ValueError("Tavily could not extract text from this page.")
+
+    async def _api_search(self, backend, query, kind, limit, page, domains, excluded, language,
+                          date_from, date_to):
+        if backend == "searxng":
+            category = {"web": "general", "shopping": "general"}.get(kind, kind)
+            params = {"q": query, "categories": category, "pageno": page + 1, "format": "json"}
+            if language:
+                params["language"] = language
+            response = await self._client.get(self.searxng_url + "/search", params=params,
+                                              follow_redirects=False)
+            response.raise_for_status()
+            data = response.json()
+        else:
+            payload = {"query": query, "search_depth": "basic", "auto_parameters": False,
+                       "max_results": min(20, max(1, limit)), "include_domains": domains,
+                       "exclude_domains": excluded or [], "topic": "news" if kind == "news" else "general"}
+            if date_from:
+                payload["start_date"] = date_from
+            if date_to:
+                payload["end_date"] = date_to
+            data = await self._tavily("search", payload)
+        return [{"title": item.get("title") or "", "url": item["url"],
+                 "domain": urlparse(item["url"]).hostname or "", "snippet": item.get("content") or "",
+                 "published_date": item.get("published_date") or item.get("publishedDate")}
+                for item in data["results"] if isinstance(item, dict) and isinstance(item.get("url"), str)]
+
     async def search(self, query: str, *, domains=None, exclude_domains=None,
                      date_from=None, date_to=None, language=None, country=None,
                      max_results: int = 10, page: int = 0, kind: str = "web") -> dict:
@@ -202,7 +254,26 @@ class WebSearch:
         domains = domains or []
         results: list[dict] = []
 
-        if self.serpapi_key:
+        backend = "duckduckgo"
+        free_search = self.free_only or self.searxng_url or self.tavily_key
+        providers = []
+        if self.searxng_url:
+            providers.append("searxng")
+        if self.tavily_key and page == 0 and kind in {"web", "news"}:
+            providers.append("tavily")
+        for provider in providers:
+            try:
+                candidates = await self._api_search(provider, query, kind, max_results, page, domains,
+                                                    exclude_domains, language, date_from, date_to)
+                results = self._post_filter(candidates, domains, exclude_domains, date_from, date_to)
+            except (httpx.HTTPError, ValueError, KeyError, TypeError):
+                continue
+            if results:
+                backend = provider
+                break
+
+        if not results and self.serpapi_key and not free_search:
+            backend = "serpapi"
             engine_map = {"web": "google", "news": "google_news",
                           "images": "google_images", "shopping": "google_shopping"}
             engine = engine_map.get(kind, "google")
@@ -212,7 +283,7 @@ class WebSearch:
             if date_from and date_to:
                 extra["tbs"] = f"cdr:1,cd_min:{date_from},cd_max:{date_to}"
             results = await self._serpapi(query, engine, page + 1, extra)
-        else:
+        elif not results:
             # DuckDuckGo path (web only; other kinds fall back to web with hints)
             if kind == "news":
                 query = f"{query} news"
@@ -254,7 +325,7 @@ class WebSearch:
                 if False else r
                 for r in filtered[:max_results]
             ],
-            "backend": "serpapi" if self.serpapi_key else "duckduckgo",
+            "backend": backend,
         }
 
     async def news(self, query: str, **kw):
