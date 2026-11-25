@@ -81,6 +81,20 @@ python main.py --frontend
 
 The local server opens a private URL in your default browser. Use the same provider credentials, project directory, and routing flags as the terminal. To open a named project directly, run `python main.py --frontend --project my-project`. To print the URL without launching a browser, add `--no-open-browser`. The default port is assigned automatically; `--frontend-port 8765` selects a fixed port.
 
+In **Settings → Chat model**, create a vault passphrase, pick a provider, and save
+each API key under its own name. Choose a model ID and a saved key, then select
+**Use for next request**. You can change either choice during a conversation.
+The current turn finishes with its original credentials. The model field accepts
+a provider's model ID and suggests models you have used with that provider.
+For hosted Llama models, select the inference provider that issued your key.
+Loopback Ollama also supports a keyless local connection.
+
+Named keys persist encrypted in the agent home directory. Unlock them once per
+server process with your passphrase, including on a headless VPS. Keep a copy
+of the passphrase in your password manager. Manual selection requires smart
+routing to be disabled. Existing startup credentials still work when no manual
+selection is saved.
+
 Use **Session** to select or create a project, send a task, watch streamed replies and tool activity, or start a swarm turn. **Skill library** searches the installed catalog, and **Tools** toggles capabilities on the current runtime. Slash commands, including `/history`, `/resume`, and `/export`, use the same handlers and saved files as the terminal. Reloading the tab reconnects to the current session.
 
 Each server process serves one agent session on IPv4 loopback. Keep its tokenized URL private. `/exit` ends the agent session and leaves the transcript visible; Ctrl+C in the launching terminal stops the server.

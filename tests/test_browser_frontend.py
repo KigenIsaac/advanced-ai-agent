@@ -105,6 +105,24 @@ def test_browser_operates_real_cli_session(tmp_path):
                     page.on("pageerror", lambda exc: errors.append(str(exc)))
                     await page.goto(url)
                     await page.get_by_role("button", name="Settings").click()
+                    await page.locator("#modelProvider").select_option("deepseek")
+                    await page.locator("#vaultPhrase").fill("browser test vault passphrase")
+                    await page.locator("#unlockVault").click()
+                    for label in ("Personal", "Work", "Testing"):
+                        await page.locator("#namedLabel").fill(label)
+                        await page.locator("#namedSecret").fill("fixture-" + label)
+                        await page.locator("#saveNamedKey").click()
+                        await page.wait_for_function(
+                            "(label) => document.querySelector('#modelKey').selectedOptions[0]?.text === label",
+                            arg=label)
+                    await page.locator("#modelKey").select_option(label="Work")
+                    await page.locator("#modelId").fill("deepseek-test-model")
+                    await page.locator("#useModel").click()
+                    await page.locator("#modelSelection").get_by_text("deepseek-test-model", exact=False).wait_for()
+                    await page.locator("#modelProvider").select_option("local")
+                    await page.locator("#modelId").fill("browser-chosen-model")
+                    await page.locator("#useModel").click()
+                    await page.locator("#modelSelection").get_by_text("browser-chosen-model", exact=False).wait_for()
                     await page.get_by_label("Service", exact=True).select_option("search")
                     await page.get_by_text("SerpAPI · https://serpapi.com", exact=True).wait_for()
                     secret_field = page.get_by_label("New API key")
@@ -146,6 +164,7 @@ def test_browser_operates_real_cli_session(tmp_path):
                         timeout=20000
                     )
                     assert len(requests) == 2
+                    assert all(r["model"] == "browser-chosen-model" for r in requests)
                     bubbles = page.locator("#feed .entry:is(.user,.thinking,.tool,.assistant)")
                     assert await bubbles.evaluate_all(
                         "(nodes) => nodes.slice(-5).map(n => n.classList[1])"

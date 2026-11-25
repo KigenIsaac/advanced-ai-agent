@@ -117,10 +117,30 @@
         <section id="settings" hidden>
           <div class="intro"><h1>Settings</h1></div>
           <div class="settingsCard">
+            <h2>Chat model</h2>
+            <label for="modelProvider">Provider</label><select id="modelProvider"></select>
+            <small id="modelEndpoint"></small>
+            <label for="modelId">Model ID</label><input id="modelId" list="modelOptions" maxlength="256" spellcheck="false" /><datalist id="modelOptions"></datalist>
+            <label for="modelKey">Saved key</label><select id="modelKey"></select>
+            <button type="button" id="useModel">Use for next request</button>
+            <p id="modelSelection"></p>
+            <form id="unlockForm" autocomplete="off">
+              <label for="vaultPhrase" id="vaultLabel">Vault passphrase</label>
+              <input id="vaultPhrase" type="password" maxlength="1024" required />
+              <button id="unlockVault">Unlock keys</button>
+            </form>
+            <form id="namedKeyForm" autocomplete="off" hidden>
+              <label for="namedLabel">Key name</label><input id="namedLabel" maxlength="80" placeholder="Work" required />
+              <label for="namedSecret">Provider API key</label><input id="namedSecret" type="password" maxlength="4096" autocomplete="new-password" required />
+              <button id="saveNamedKey">Save named key</button>
+            </form>
+            <p id="modelNotice" role="status"></p>
+          </div>
+          <div class="settingsCard">
             <h2>API credentials</h2>
             <form id="credentialForm" autocomplete="off">
               <label for="credentialName">Service</label>
-              <select id="credentialName"><option value="provider">Model provider</option><option value="search">Web search · SerpAPI</option><option value="tavily">Search and read · Tavily</option></select>
+              <select id="credentialName"><option value="provider">Legacy startup provider</option><option value="search">Web search · SerpAPI</option><option value="tavily">Search and read · Tavily</option></select>
               <p id="credentialTarget"></p>
               <p id="credentialState"></p>
               <label for="credentialValue">New API key</label>
