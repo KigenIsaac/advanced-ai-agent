@@ -3893,7 +3893,14 @@ class Agent:
             try:
                 state = await self._stream_round()
             except asyncio.CancelledError:
+                if hasattr(self.ui, "finish_tool_batch"):
+                    self.ui.finish_tool_batch()
                 self.ui.warning("Turn cancelled.")
+                raise
+
+            except Exception:
+                if hasattr(self.ui, "finish_tool_batch"):
+                    self.ui.finish_tool_batch()
                 raise
 
             self.rounds += 1
@@ -3924,23 +3931,33 @@ class Agent:
                             "name": pc["name"],
                             "arguments": json.dumps(
                                 pc["args"], ensure_ascii=False
-                            ),
+                            ) if not pc["error"] else pc["raw"]["arguments"],
                         },
                     }
                     for pc in parsed_calls
                 ]
+            if hasattr(self.ui, "round_display_steps"):
+                steps = self.ui.round_display_steps()
+                if steps:
+                    assistant_msg["_display_steps"] = steps
             self.messages.append(assistant_msg)
 
             if not parsed_calls:
                 return
 
-            for pc in parsed_calls:
-                result = await self._execute_parsed_tool(pc)
-                self.messages.append({
-                    "role": "tool",
-                    "tool_call_id": pc["id"],
-                    "content": self._serialize_tool_result(result),
-                })
+            if hasattr(self.ui, "tools_requested"):
+                self.ui.tools_requested(parsed_calls)
+            try:
+                for pc in parsed_calls:
+                    result = await self._execute_parsed_tool(pc)
+                    self.messages.append({
+                        "role": "tool",
+                        "tool_call_id": pc["id"],
+                        "content": self._serialize_tool_result(result),
+                    })
+            finally:
+                if hasattr(self.ui, "finish_tool_batch"):
+                    self.ui.finish_tool_batch()
 
         self.ui.warning(
             f"Reached maximum tool rounds ({self.max_rounds}). Turn stopped."
@@ -3949,7 +3966,8 @@ class Agent:
     async def _stream_round(self) -> dict[str, Any]:
         full_messages = [
             {"role": "system", "content": self.system_prompt}
-        ] + _repair_tool_call_history(self.messages)
+        ] + [{k: v for k, v in msg.items() if k != "_display_steps"}
+             for msg in _repair_tool_call_history(self.messages)]
 
         state: dict[str, Any] = {
             "content": "",
@@ -3992,6 +4010,7 @@ class Agent:
                     "content": msg.get("content"),
                     "reasoning_content": msg.get("reasoning_content")
                     or msg.get("reasoning"),
+                    "reasoning_summary": msg.get("reasoning_summary"),
                     "tool_calls": msg.get("tool_calls"),
                 }
 
@@ -4000,15 +4019,19 @@ class Agent:
                 state["finish_reason"] = fr
 
             rc = delta.get("reasoning_content") or delta.get("reasoning")
-            if rc:
+            summary = delta.get("reasoning_summary")
+            if rc or isinstance(summary, str) and summary:
                 if not in_reasoning:
                     if in_content:
                         self.ui.content_end()
                         in_content = False
                     self.ui.reasoning_start()
                     in_reasoning = True
-                self.ui.reasoning_delta(rc)
-                state["reasoning"] += rc
+                if rc:
+                    self.ui.reasoning_delta(rc)
+                    state["reasoning"] += rc
+                if isinstance(summary, str) and hasattr(self.ui, "summary_delta"):
+                    self.ui.summary_delta(summary)
 
             content = delta.get("content")
             if content:
@@ -4042,6 +4065,8 @@ class Agent:
                     slot["arguments"] += fragment
                 elif fragment is not None:
                     slot["arguments"] += json.dumps(fragment)
+                if slot["id"] and slot["name"] and hasattr(self.ui, "tool_requested"):
+                    self.ui.tool_requested(slot["id"], slot["name"], slot["arguments"])
 
         if in_content:
             self.ui.content_end()
@@ -4056,33 +4081,34 @@ class Agent:
     async def _execute_parsed_tool(self, parsed: dict) -> Any:
         name = parsed["name"]
 
+        call_id = parsed["id"]
+        browser_events = hasattr(self.ui, "tool_started")
+        started = time.monotonic()
         if parsed["error"]:
-            raw = (parsed["raw"].get("arguments") or "")[:2000]
-            return {
+            result = {
                 "error": "invalid_tool_arguments",
                 "message": parsed["error"],
-                "raw_arguments": raw,
+                "raw_arguments": (parsed["raw"].get("arguments") or "")[:2000],
             }
-
-        arguments = parsed["args"]
-        self.ui.tool_call(name, arguments)
-        started = time.time()
-        try:
-            result = await self.tools.dispatch(name, arguments)
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            detail = str(e).strip() or repr(e) or "(no detail)"
-            result = {"error": type(e).__name__, "message": detail}
-        elapsed = time.time() - started
-        key_label = getattr(self.client, "last_key_label", "—")
-        self.ui.tool_result(
-            name,
-            result,
-            elapsed,
-            verbose=self.config.verbose,
-            key_label=key_label,
-        )
+        else:
+            arguments = parsed["args"]
+            if browser_events:
+                self.ui.tool_started(call_id)
+            else:
+                self.ui.tool_call(name, arguments)
+            try:
+                result = await self.tools.dispatch(name, arguments)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                detail = str(e).strip() or repr(e) or "(no detail)"
+                result = {"error": type(e).__name__, "message": detail}
+        elapsed = time.monotonic() - started
+        if browser_events:
+            self.ui.tool_finished(call_id, result, elapsed)
+        elif not parsed["error"]:
+            self.ui.tool_result(name, result, elapsed, verbose=self.config.verbose,
+                                key_label=getattr(self.client, "last_key_label", "—"))
         return result
 
     @staticmethod

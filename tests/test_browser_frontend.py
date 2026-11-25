@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_browser_operates_real_cli_session(tmp_path):
     async def exercise():
         requests = []
+        release_call = asyncio.Event()
         report = (
             "## Catalog check\n\n**Verified** the skill catalog.\n\n"
             "| Skill | Result |\n| --- | ---: |\n| SHA-256 | Available |\n\n"
@@ -50,9 +51,13 @@ def test_browser_operates_real_cli_session(tmp_path):
                 if "tool_calls" in msg
                 else [{"content": report[:18]}, {"content": report[18:]}]
             )
+            deltas.insert(0, {"reasoning_content": "internal reasoning",
+                              "reasoning_summary": "Reviewing the catalog request."})
             for delta in deltas:
                 chunk = {"choices": [{"index": 0, "delta": delta}]}
                 await reply.write(("data: " + json.dumps(chunk) + "\n\n").encode())
+            if "tool_calls" in msg:
+                await asyncio.wait_for(release_call.wait(), 10)
             await reply.write(b"data: [DONE]\n\n")
             await reply.write_eof()
             return reply
@@ -128,10 +133,29 @@ def test_browser_operates_real_cli_session(tmp_path):
                     await page.locator('[data-view="session"]').click()
                     await page.locator("#message").fill("Check the catalog")
                     await page.locator("#send").click()
+                    tool_bubble = page.locator("#feed .entry.tool")
+                    await tool_bubble.get_by_text("Requested", exact=True).wait_for()
+                    await tool_bubble.locator("summary").click()
+                    initial_node = await tool_bubble.element_handle()
+                    release_call.set()
+                    await tool_bubble.get_by_text("Completed", exact=True).wait_for()
+                    assert await tool_bubble.evaluate("(node, original) => node === original", initial_node)
+                    assert await tool_bubble.locator("details").evaluate("node => node.open")
+                    await tool_bubble.locator("summary").click()
                     await page.get_by_text("Verified", exact=True).wait_for(
                         timeout=20000
                     )
                     assert len(requests) == 2
+                    bubbles = page.locator("#feed .entry:is(.user,.thinking,.tool,.assistant)")
+                    assert await bubbles.evaluate_all(
+                        "(nodes) => nodes.slice(-5).map(n => n.classList[1])"
+                    ) == ["user", "thinking", "tool", "thinking", "assistant"]
+                    thinking = page.locator(".thinking details").first
+                    assert not await thinking.evaluate("el => el.open")
+                    await thinking.locator("summary").click()
+                    assert await thinking.locator(".stepText").inner_text() == "Reviewing the catalog request."
+                    assert "internal reasoning" not in await page.locator("#feed").inner_text()
+                    assert "_display_steps" not in json.dumps(requests)
                     answer = page.locator(".assistant .answer")
                     assert await answer.get_by_role("heading", name="Catalog check").count() == 1
                     assert await answer.get_by_role("cell", name="Available").count() == 1
@@ -156,6 +180,7 @@ def test_browser_operates_real_cli_session(tmp_path):
                     await page.get_by_role("button", name="History", exact=True).click()
                     await page.get_by_role("dialog").get_by_role("button", name="Check the catalog").click()
                     await answer.get_by_role("heading", name="Catalog check").wait_for()
+                    assert await page.locator(".thinking").count() == 2
                     await trace.locator("summary").click()
                     assert "sha256" in await trace.locator("pre").first.inner_text()
                     assert "text_sha256" in await trace.locator("pre").last.inner_text()
@@ -223,3 +248,25 @@ def test_restore_pairs_reordered_results_and_retains_long_messages():
     assert missing["status"] == "No saved result"
     assert orphan["result"] == "orphan result"
 
+
+
+def test_tool_bubbles_follow_each_call_through_completion():
+    from types import SimpleNamespace
+    from browser_ui.server import BrowserUI
+
+    ui = BrowserUI(SimpleNamespace())
+    calls = [{"id": key, "name": "read_file", "args": {"path": key}, "error": None}
+             for key in ("a", "b", "c")]
+    ui.tools_requested(calls)
+    first, second, third = ui.rows
+    assert [r["status"] for r in ui.rows] == ["Requested"] * 3
+    ui.tool_started("a")
+    ui.tool_started("b")
+    assert first["status"] == second["status"] == "Running"
+    ui.tool_finished("b", {"error": "missing file"}, 0.2)
+    ui.tool_finished("a", {"text": "file a"}, 0.3)
+    ui.finish_tool_batch()
+    assert ui.rows == [first, second, third]
+    assert json.loads(first["result"]) == {"text": "file a"}
+    assert second["status"] == "Failed" and "missing file" in second["result"]
+    assert third["status"] == "Interrupted"
