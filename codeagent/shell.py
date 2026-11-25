@@ -7,6 +7,8 @@ Layer 5  Higher-level command execution
 from __future__ import annotations
 
 import asyncio
+import codecs
+from terminal_stream import output_sink
 import os
 import signal
 import shutil
@@ -68,7 +70,7 @@ async def _kill_tree_async(pid: int) -> None:
             pass
     else:
         try:
-            os.killpg(os.getpgid(pid), signal.SIGKILL)
+            os.killpg(pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
         except PermissionError:
@@ -162,72 +164,63 @@ class Shell:
         except FileNotFoundError as e:
             raise ShellError(str(e)) from e
 
-        timed_out = False
-        stdout_b = b""
-        stderr_b = b""
+        sink = output_sink.get()
+        captured = {"stdout": [], "stderr": []}
+        lengths = {"stdout": 0, "stderr": 0}
 
-        try:
-            stdout_b, stderr_b = await asyncio.wait_for(
-                proc.communicate(stdin.encode() if stdin else None),
-                timeout=timeout,
-            )
-        except asyncio.TimeoutError:
-            timed_out = True
+        async def pump(stream, channel):
+            decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+            while True:
+                block = await stream.read(8192)
+                text = decoder.decode(block, final=not block)
+                remaining = self.max_output_bytes - lengths[channel]
+                if remaining > 0 and text:
+                    captured[channel].append(text[:remaining])
+                lengths[channel] += len(text)
+                if sink and text:
+                    sink(channel, text)
+                if not block:
+                    break
 
-            try:
-                await _kill_tree_async(proc.pid)
-            except Exception:
-                pass
-
-            try:
-                proc.kill()
-            except ProcessLookupError:
-                pass
-            except Exception:
-                pass
-
-            async def _drain(stream) -> bytes:
-                if stream is None:
-                    return b""
+        async def write_input():
+            if proc.stdin:
                 try:
-                    return await asyncio.wait_for(stream.read(), timeout=2.0)
-                except Exception:
-                    return b""
+                    proc.stdin.write(stdin.encode())
+                    await proc.stdin.drain()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                finally:
+                    proc.stdin.close()
 
+        tasks = [asyncio.create_task(coro) for coro in (
+            pump(proc.stdout, "stdout"), pump(proc.stderr, "stderr"), write_input(), proc.wait()
+        )]
+        combined = asyncio.gather(*tasks)
+        try:
+            await asyncio.wait_for(asyncio.shield(combined), timeout=timeout)
+        except BaseException as exc:
+            await _kill_tree_async(proc.pid)
             try:
-                stdout_b = await _drain(proc.stdout)
-            except Exception:
-                stdout_b = b""
-
-            try:
-                stderr_b = await _drain(proc.stderr)
-            except Exception:
-                stderr_b = b""
-
-            try:
-                await asyncio.wait_for(proc.wait(), timeout=3.0)
+                await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=3)
             except asyncio.TimeoutError:
                 pass
-            except Exception:
-                pass
-
+            finally:
+                if combined.done() and not combined.cancelled():
+                    combined.exception()
+            if isinstance(exc, asyncio.TimeoutError):
+                raise ShellTimeout(f"Command timed out after {timeout}s: {command}") from None
+            raise
         duration = time.time() - started
-        stdout = stdout_b.decode(errors="replace") if stdout_b else ""
-        stderr = stderr_b.decode(errors="replace") if stderr_b else ""
-
-        if timed_out:
-            raise ShellTimeout(
-                f"Command timed out after {timeout}s: {command}"
-            )
-
+        stdout = "".join(captured["stdout"])
+        stderr = "".join(captured["stderr"])
         result = {
             "command": command,
             "cwd": workdir,
             "exit_code": proc.returncode,
-            "stdout": stdout[:self.max_output_bytes],
-            "stderr": stderr[:self.max_output_bytes],
+            "stdout": stdout,
+            "stderr": stderr,
             "duration": round(duration, 3),
-            "truncated": len(stdout) > self.max_output_bytes,
+            "truncated": max(lengths.values()) > self.max_output_bytes,
         }
         if check and proc.returncode != 0:
             raise ShellError(

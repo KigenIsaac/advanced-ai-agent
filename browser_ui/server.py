@@ -56,6 +56,14 @@ class ConsoleSink:
         pass
 
 
+def result_status(name, result):
+    if is_error_result(result):
+        return "Failed"
+    if name == "terminal" and isinstance(result, dict) and result.get("exit_code") not in (None, 0):
+        return "Failed"
+    return "Completed"
+
+
 class BrowserUI(TerminalUI):
     def __init__(self, app):
         super().__init__()
@@ -164,7 +172,7 @@ class BrowserUI(TerminalUI):
                     result = json.loads(raw)
                 except (TypeError, ValueError):
                     result = raw
-                row.update(result=raw, status="Failed" if is_error_result(result) else "Completed")
+                row.update(result=raw, status=result_status(row["label"], result))
         self.dirty()
 
     def conversation_changed(self, session, command):
@@ -246,6 +254,16 @@ class BrowserUI(TerminalUI):
             args = call["raw"]["arguments"] if call["error"] else call["args"]
             self.tool_requested(call["id"], call["name"], args)
 
+    def terminal_progress(self, call_id, channel, text):
+        row = self.tool_rows.get(call_id)
+        if row is None:
+            return
+        if channel == "observation":
+            row["observation"] = text
+        else:
+            row[channel] = (row.get(channel, "") + text)[-16000:]
+        self.dirty()
+
     def tool_started(self, call_id):
         self.tool_rows[call_id]["status"] = "Running"
         self.dirty()
@@ -253,7 +271,7 @@ class BrowserUI(TerminalUI):
     def tool_finished(self, call_id, result, elapsed):
         row = self.tool_rows.pop(call_id)
         row.update(result=Agent._serialize_tool_result(result), elapsed=round(elapsed, 2),
-                   status="Failed" if is_error_result(result) else "Completed")
+                   status=result_status(row["label"], result))
         self.dirty()
 
     def finish_tool_batch(self):
