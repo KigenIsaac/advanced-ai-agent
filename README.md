@@ -107,7 +107,7 @@ The test suite covers configuration behavior plus deterministic workspace, test-
 
 ## Engineering skills
 
-The agent can discover 499 skills with `skill_catalog` and run them with `skill_run` in individual sessions and swarm workers. The catalog includes 63 document operations and reports, 359 Python checks powered by Ruff, 48 ANSI SQL checks powered by SQLFluff, six combined reviews, and 23 browser, document and project workflows. Each analyzer check selects one named rule. A combined review runs its selected rules together in one process.
+The agent can discover 548 skills with `skill_catalog` and run them with `skill_run` in individual sessions and swarm workers. The catalog includes 63 document operations and reports, 359 Python checks powered by Ruff, 48 ANSI SQL checks powered by SQLFluff, six combined reviews, 23 browser, document and repository workflows, and 49 system engineering skills. Each analyzer check selects one named rule. A combined review runs its selected rules together in one process.
 
 Discovery supports group, keyword, or rule-code searches. For example, `{"query":"F821"}` finds the undefined-name check. Results include a total and a continuation offset. The default page holds 20 entries. The model receives two tool schemas regardless of catalog size.
 
@@ -121,6 +121,10 @@ Discovery supports group, keyword, or rule-code searches. For example, `{"query"
 | `review_sql_quality` | Inspect this ANSI SQL query for ambiguous references, join issues and layout problems. |
 
 Analyzer results include a status, total diagnostic count, and the first 50 findings with rule IDs and source positions. Source parsing errors, timeouts and unavailable analyzers are reported separately. The checks use fixed rule settings and a 15-second process timeout. SQL analysis reads raw text using the ANSI dialect. Python checks target Python 3.12.
+
+### Engineering a system
+
+The `project` group contains 55 skills across planning (9), relational storage (11), API contracts (9), state machines (11), capacity and reliability (9), and repository inspection (6). Open the [engineering skill guide](docs/system-engineering.md) for every skill name, input formats, units, and a runnable example. Discover available operations with `skill_catalog` and `{"group":"project"}`; follow `next_offset` for subsequent pages.
 
 ### Browser, document and project workflows
 

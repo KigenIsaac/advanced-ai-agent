@@ -2621,6 +2621,15 @@ class ToolRegistry:
                 if set(arguments) - {"skill", "options"}:
                     return {"error": "invalid_arguments", "message": "use options for this workflow"}
                 return await engineering_skills.workflows.execute(self, skill, arguments.get("options", {}))
+            output = None
+            if name == "skill_run" and "output" in arguments:
+                if (not isinstance(skill, str) or skill not in engineering_skills.system.TOOLS
+                        or not isinstance(arguments["output"], str) or not arguments["output"]):
+                    return {"error": "invalid_arguments", "message": "output requires a system skill and new file path"}
+                if self.code is None or not self.is_enabled("workspace"):
+                    return {"error": "workspace_unavailable"}
+                arguments = dict(arguments)
+                output = arguments.pop("output")
             if name == "skill_run" and "path" in arguments:
                 if set(arguments) != {"skill", "path"} or not isinstance(arguments["path"], str):
                     return {"error": "invalid_arguments", "message": "provide a skill and one file path"}
@@ -2634,7 +2643,15 @@ class ToolRegistry:
                 arguments = {"skill": arguments["skill"], "text": text}
             try:
                 if name == "skill_run":
-                    return await asyncio.to_thread(handler, **arguments)
+                    response = await asyncio.to_thread(handler, **arguments)
+                    if output is not None and "result" in response:
+                        try:
+                            artifact = await asyncio.to_thread(engineering_skills.system.save_result,
+                                                               self.code.ws, output, response["result"])
+                        except (ValueError, RuntimeError, OSError, WorkspaceError) as exc:
+                            return {"error": "output_failed", "message": str(exc)[:400]}
+                        return {"skill": skill, "artifact": artifact}
+                    return response
                 return handler(**arguments)
             except TypeError as exc:
                 return {"error": "invalid_arguments", "message": str(exc)}
