@@ -11,6 +11,7 @@ from html import escape
 from markdown_it import MarkdownIt
 from pathlib import Path
 
+from browser_ui.model_settings import ModelSettings
 from browser_ui.credentials import WorkspaceCredentials, VaultUnavailable
 from aiohttp import web
 from rich.console import Console
@@ -428,9 +429,37 @@ def application(ui, token, authority):
         except (ValueError, TypeError, UnicodeError):
             raise web.HTTPBadRequest(text="Invalid credential or destination.")
 
+    async def model_settings(request):
+        store = ui.models
+        if request.method == "GET":
+            return web.json_response(store.state())
+        try:
+            if request.content_type != "application/json":
+                raise web.HTTPUnsupportedMediaType()
+            data = await request.json()
+            if not isinstance(data, dict):
+                raise ValueError("Invalid settings.")
+            async with store.lock:
+                action = data.get("action")
+                if action == "unlock":
+                    await asyncio.to_thread(store.unlock, data.get("passphrase"))
+                elif action == "save":
+                    key_id = store.save(data.get("provider"), data.get("label"), data.get("value"))
+                    return web.json_response({"key_id": key_id})
+                elif action == "select":
+                    store.select(data.get("provider"), data.get("model"), data.get("key_id"))
+                else:
+                    raise ValueError("Unknown settings action.")
+            ui.dirty()
+            return web.json_response({"ok": True})
+        except (ValueError, TypeError) as exc:
+            raise web.HTTPBadRequest(text=str(exc))
+
     app = web.Application(middlewares=[guard], client_max_size=160000)
     app.router.add_get("/api/settings/{name:provider|search|tavily}", credential)
     app.router.add_post("/api/settings/{name:provider|search|tavily}", credential)
+    app.router.add_get("/api/settings/models", model_settings)
+    app.router.add_post("/api/settings/models", model_settings)
     app.router.add_get("/api/state", state)
     app.router.add_post("/api/input", respond)
     app.router.add_get("/api/skills", catalog)
@@ -454,6 +483,7 @@ async def serve(app, port, launch=True):
 
     ui = BrowserUI(app)
     ui.credentials = WorkspaceCredentials(app)
+    ui.models = ModelSettings(app)
     app.ui, app.menu = ui, BrowserMenu(app.manager, ui)
     token = secrets.token_urlsafe(32)
     sock = socket.socket()

@@ -28,6 +28,7 @@ async function api(path, options = {}) {
       "Content-Type": "application/json",
     },
   });
+  if (!r.ok && path === "settings/models" && r.status === 400) throw new Error(await r.text());
   if (!r.ok)
     throw new Error(
       r.status === 403
@@ -333,7 +334,7 @@ for (const b of document.querySelectorAll("[data-view]"))
     b.setAttribute("aria-current", "page");
     $("crumb").textContent = b.lastChild.textContent.trim();
     $("credentialValue").value = "";
-    if (current === "settings") loadCredential();
+    if (current === "settings") { loadCredential(); loadModels(); }
     if (current === "skills") query();
   };
 $("search").oninput = () => {
@@ -466,3 +467,68 @@ $("textSize").onchange = () => {
   applyTextSize($("textSize").value);
   try { localStorage.setItem("agnes-text-size", $("textSize").value); } catch {}
 };
+
+let modelSettings, modelBusy = false;
+
+function showModelKeys(preferred) {
+  const provider = $("modelProvider").value, info = modelSettings.providers[provider];
+  $("modelEndpoint").textContent = info.endpoint;
+  $("modelOptions").replaceChildren(...[...new Set([info.model, ...info.history])].map(m => new Option(m, m)));
+  const keys = modelSettings.keys.filter(k => k.provider === provider && k.endpoint === info.endpoint);
+  const options = keys.map(k => new Option(k.label, k.id));
+  if (info.keyless) options.unshift(new Option("Local connection", "local"));
+  $("modelKey").replaceChildren(...options);
+  if (options.some(o => o.value === preferred)) $("modelKey").value = preferred;
+  $("useModel").disabled = !options.length || ($("modelKey").value !== "local" && !modelSettings.unlocked);
+}
+
+async function loadModels(preferredProvider, preferredKey, editedModel) {
+  try {
+    modelSettings = await api("settings/models");
+    const selected = modelSettings.selected, providers = modelSettings.providers;
+    $("modelProvider").replaceChildren(...Object.entries(providers).map(([id, p]) => new Option(p.label, id)));
+    const provider = preferredProvider || selected?.provider || state?.provider;
+    if (providers[provider]) $("modelProvider").value = provider;
+    const id = $("modelProvider").value;
+    $("modelId").value = editedModel ?? (selected?.provider === id ? selected.model :
+      state?.provider === id ? state.model : providers[id].model);
+    showModelKeys(preferredKey || selected?.key_id);
+    const activeKey = modelSettings.keys.find(k => k.id === selected?.key_id);
+    $("modelSelection").textContent = selected
+      ? "Selected: " + selected.provider + " / " + selected.model + " · " + (activeKey?.label || "Local connection")
+      : "Choose the model and key for your next request.";
+    $("unlockForm").hidden = modelSettings.unlocked;
+    $("namedKeyForm").hidden = !modelSettings.unlocked;
+    $("vaultLabel").textContent = modelSettings.initialized ? "Vault passphrase" : "Create a vault passphrase (12+ characters)";
+    $("unlockVault").textContent = modelSettings.initialized ? "Unlock saved keys" : "Create key vault";
+  } catch (e) { $("modelNotice").textContent = e.message; }
+}
+
+$("modelProvider").onchange = () => {
+  const id = $("modelProvider").value;
+  $("modelId").value = modelSettings.selected?.provider === id ? modelSettings.selected.model : modelSettings.providers[id].model;
+  showModelKeys(modelSettings.selected?.key_id);
+};
+$("modelKey").onchange = () => showModelKeys($("modelKey").value);
+
+async function updateModels(action) {
+  if (modelBusy || !modelSettings) return;
+  modelBusy = true;
+  const provider = $("modelProvider").value, model = $("modelId").value, key_id = $("modelKey").value;
+  const payload = {action, provider, model, key_id};
+  if (action === "unlock") payload.passphrase = $("vaultPhrase").value;
+  if (action === "save") Object.assign(payload, {label: $("namedLabel").value, value: $("namedSecret").value});
+  $("modelNotice").textContent = "";
+  try {
+    const result = await api("settings/models", {method:"POST", body:JSON.stringify(payload)});
+    $("vaultPhrase").value = $("namedSecret").value = "";
+    if (action === "save") $("namedLabel").value = "";
+    await loadModels(provider, result.key_id || key_id, model);
+    $("modelNotice").textContent = {unlock:"Vault unlocked.",save:"Key saved. Select it for a model above.",
+      select:"Selection saved for your next request."}[action];
+  } catch (e) { $("modelNotice").textContent = e.message; }
+  finally { modelBusy = false; }
+}
+$("useModel").onclick = () => updateModels("select");
+$("unlockForm").onsubmit = e => { e.preventDefault(); updateModels("unlock"); };
+$("namedKeyForm").onsubmit = e => { e.preventDefault(); updateModels("save"); };

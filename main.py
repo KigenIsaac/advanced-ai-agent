@@ -5137,6 +5137,23 @@ def print_history(
     ui.info("Use /resume <id> to load a conversation.")
 
 
+class UnconfiguredModel:
+    model = "Choose a model in Settings"
+
+    def pool_status(self):
+        return []
+
+    def pool_totals(self):
+        return dict(keys=0, total_rpm=0, rpm_per_key=0, used_in_window=0)
+
+    async def close(self):
+        pass
+
+    async def stream_chat(self, *args, **kwargs):
+        raise ValueError("Choose a model and key in Settings before sending a request.")
+        yield  # Match the streaming client interface.
+
+
 class App:
     def __init__(
         self,
@@ -5206,7 +5223,9 @@ class App:
         self.settings = resolve_runtime_settings(self.args)
 
     async def start(self) -> int:
-        await self._ensure_provider_choice()
+        models = getattr(self.ui, "models", None)
+        if models is None:
+            await self._ensure_provider_choice()
 
         settings = self.settings
         keys = resolve_provider_api_keys(
@@ -5226,11 +5245,11 @@ class App:
             # remote OpenAI-compatible endpoints.
             if httpx.URL(settings["base_url"]).host in {"localhost", "127.0.0.1", "::1"}:
                 keys = ["local-no-api-key"]
-        if not keys and credentials:
+        if not keys and credentials and models is None:
             self.ui.info("Open Settings to add a key for the selected provider.")
             keys = [await credentials.await_provider()]
             workspace_key = True
-        if not keys:
+        if not keys and models is None:
             self.ui.error(
                 "No API key for the selected provider. Set its provider-specific "
                 "environment variable (e.g. DEEPSEEK_API_KEY, DASHSCOPE_API_KEY, "
@@ -5264,15 +5283,16 @@ class App:
         )
         self.ui._agent_name = self.config.agent_name
 
-        self.pool = KeyPool(keys=keys, rpm_per_key=rpm_per_key)
-        self.client = AgnesClient(
-            self.config, self.pool, on_retry=self.ui.retry_notice
-        )
-        try:
-            self._enable_smart_routing(workspace_key=workspace_key)
-        except Exception:
-            await self.client.close()
-            raise
+        if keys:
+            self.pool = KeyPool(keys=keys, rpm_per_key=rpm_per_key)
+            self.client = AgnesClient(self.config, self.pool, on_retry=self.ui.retry_notice)
+            try:
+                self._enable_smart_routing(workspace_key=workspace_key)
+            except Exception:
+                await self.client.close()
+                raise
+        else:
+            self.client = UnconfiguredModel()
 
         if _HAS_WEB and not self.args.no_web:
             try:
@@ -5372,10 +5392,42 @@ class App:
             + (f", estimated daily budget ${daily_limit:.2f} (UTC)" if ledger else ", no budget guard")
         )
 
+    async def _apply_browser_model(self):
+        store = getattr(self.ui, "models", None)
+        if store is None:
+            return
+        chosen = store.selection()
+        if not chosen:
+            if isinstance(self.client, UnconfiguredModel):
+                raise ValueError("Choose a provider, model and key in Settings first.")
+            return
+        provider, endpoint, model, key = chosen
+        routing_path = Path(self.args.routing_config).expanduser() if self.args.routing_config else self.home / "routing.json"
+        if isinstance(self.client, RoutedClient) or _read_json(routing_path, {}).get("enabled"):
+            raise ValueError("Manual model selection requires smart routing to be disabled.")
+        if (provider, endpoint, model, [key]) == (
+            self.config.provider, self.config.base_url, self.config.model, self.config.api_keys
+        ):
+            return
+        cfg = replace(self.config, provider=provider, base_url=endpoint, model=model, api_keys=[key])
+        rpm = cfg.rpm_override or ACCESS_TIERS[cfg.tier]["rpm"]
+        pool = KeyPool([key], rpm)
+        client = AgnesClient(cfg, pool, on_retry=self.ui.retry_notice)
+        previous = self.client
+        self.config, self.client, self.pool = cfg, client, pool
+        if self.session:
+            self.session.config, self.session.client = cfg, client
+            self.session.system_prompt = build_system_prompt(cfg, len(self.tools.schemas()))
+        if self.swarm:
+            self.swarm.config, self.swarm.client, self.swarm.workers = cfg, client, 1
+        self.ui.dirty()
+        await previous.close()
+
     async def _run(self) -> None:
         if getattr(self.args, "prompt", None) is not None:
             # Non-interactive, one task, current directory workspace.
             await self._open(project=None)
+            await self._apply_browser_model()
             await self.session.send(self.args.prompt)
             return
         explicit = self.args.project
@@ -5572,6 +5624,13 @@ class App:
 
             if not line:
                 continue
+
+            if not line.startswith("/") or line.split(maxsplit=1)[0].lower() in {"/retry", "/swarm"}:
+                try:
+                    await self._apply_browser_model()
+                except ValueError as exc:
+                    self.ui.error(str(exc))
+                    continue
 
             if line.startswith("/"):
                 try:

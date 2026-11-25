@@ -575,3 +575,6 @@ details[open] > summary .stepIcon {transform: rotate(90deg)}
 .entry details[open] .preview {display: none}
 .entry .stepText {margin-top: 6px}
 .entry .toolStatus {white-space: nowrap}
+
+#useModel, #unlockVault, #saveNamedKey {margin-top: .8rem}
+#modelEndpoint {display: block; overflow-wrap: anywhere; margin-top: .35rem; color: var(--muted)}
