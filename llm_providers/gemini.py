@@ -60,7 +60,7 @@ class GeminiProvider(ProviderAdapter):
             entry = await self.pool.acquire()
             self.client.last_key_label = entry.label()
             client = self.client._clients[entry.key]
-            request = client.build_request("POST", f"/{self.model}:generateContent?key={entry.key}", json=payload)
+            request = client.build_request("POST", f"/{self.model}:generateContent", json=payload)
             try:
                 response = await client.send(request)
             except Exception as e:
@@ -93,7 +93,7 @@ class GeminiProvider(ProviderAdapter):
 
             if response.status_code >= 400:
                 body = await response.aread(); await response.aclose()
-                raise RuntimeError(f"Gemini API error {response.status_code}: {body.decode(errors='replace')[:2000]}")
+                raise RuntimeError(f"Gemini API error {response.status_code}: {body.decode(errors='replace').replace(entry.key, '[redacted]')[:2000]}")
 
             data = await response.aread(); await response.aclose()
             try:

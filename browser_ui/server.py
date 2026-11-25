@@ -11,6 +11,7 @@ from html import escape
 from markdown_it import MarkdownIt
 from pathlib import Path
 
+from browser_ui.credentials import WorkspaceCredentials, VaultUnavailable
 from aiohttp import web
 from rich.console import Console
 
@@ -232,6 +233,7 @@ class BrowserUI(TerminalUI):
         cfg, session = app.config, app.session
         return {
             "revision": self.revision,
+            "needsCredential": bool(getattr(self, "credentials", None) and self.credentials.waiting),
             "question": self.question,
             "done": self.done,
             "rows": self.display_rows(self.rows[-160:]),
@@ -347,7 +349,32 @@ def application(ui, token, authority):
         end = bisect_left(ui.rows, before, key=lambda row: row["id"])
         return web.json_response({"rows": ui.display_rows(ui.rows[max(0, end-160):end]), "hasOlder": end > 160})
 
+    async def credential(request):
+        name = request.match_info["name"]
+        try:
+            if request.method == "POST":
+                if request.content_type != "application/json":
+                    raise web.HTTPUnsupportedMediaType()
+                data = await request.json()
+                if not isinstance(data, dict):
+                    raise web.HTTPBadRequest()
+                await ui.credentials.update(name, data.get("endpoint"), data.get("label"),
+                                            data.get("action"), data.get("value"))
+                if name == "search" and ui.app.web_agent:
+                    import os
+                    ui.app.web_agent.search_engine.serpapi_key = (
+                        await ui.credentials.read("search") or os.getenv("SERPAPI_KEY")
+                    )
+                return web.Response(status=204)
+            return web.json_response(await ui.credentials.status(name))
+        except VaultUnavailable:
+            raise web.HTTPServiceUnavailable(text="Unlock your OS credential store or use session storage.")
+        except (ValueError, TypeError, UnicodeError):
+            raise web.HTTPBadRequest(text="Invalid credential or destination.")
+
     app = web.Application(middlewares=[guard], client_max_size=160000)
+    app.router.add_get("/api/settings/{name:provider|search}", credential)
+    app.router.add_post("/api/settings/{name:provider|search}", credential)
     app.router.add_get("/api/state", state)
     app.router.add_post("/api/input", respond)
     app.router.add_get("/api/skills", catalog)
@@ -370,6 +397,7 @@ async def serve(app, port, launch=True):
     import socket
 
     ui = BrowserUI(app)
+    ui.credentials = WorkspaceCredentials(app)
     app.ui, app.menu = ui, BrowserMenu(app.manager, ui)
     token = secrets.token_urlsafe(32)
     sock = socket.socket()
@@ -394,3 +422,4 @@ async def serve(app, port, launch=True):
         return code
     finally:
         await runner.cleanup()
+

@@ -143,8 +143,13 @@ class WebSearch:
         }
         if extra:
             params.update(extra)
-        r = await self._client.get("https://serpapi.com/search.json", params=params)
-        r.raise_for_status()
+        try:
+            r = await self._client.get("https://serpapi.com/search.json", params=params)
+            r.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(f"SerpAPI returned HTTP {exc.response.status_code}") from None
+        except httpx.RequestError:
+            raise RuntimeError("SerpAPI request failed") from None
         data = r.json()
 
         results = []

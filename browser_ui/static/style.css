@@ -536,3 +536,17 @@ dialog .sessionBar {margin:0 0 12px}
   .layout:has(#session:not([hidden])) {height:100dvh}
 }
 @media(max-height:619px){#feed {max-height:65dvh}}
+
+
+.settingsCard {max-width:38rem; margin:0 0 1rem; padding:clamp(1rem,3vw,1.75rem); background:white; border:1px solid var(--line); border-radius:12px}
+.settingsCard h2 {margin:0 0 1rem}
+.settingsCard label {display:block; margin:1rem 0 .4rem; font-weight:600}
+.settingsCard :is(input,select) {width:100%; min-height:42px; padding:.6rem; border:1px solid var(--line); border-radius:6px; font:inherit}
+.settingsCard p {overflow-wrap:anywhere; color:var(--muted)}
+.settingsActions {display:flex; flex-wrap:wrap; gap:.6rem; margin-top:1rem}
+.settingsActions button {padding:.65rem 1rem; border-radius:7px}
+#saveCredential {background:#244836; color:white; border:0}
+#saveCredential:disabled {opacity:.5}
+#credentialNotice:empty {display:none}
+.largeMessages .entry .answer {font-size:1.16rem}
+@media(max-width:460px){aside {flex-wrap:wrap;gap:4px} nav {flex-wrap:wrap}}

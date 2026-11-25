@@ -99,6 +99,20 @@ def test_browser_operates_real_cli_session(tmp_path):
                     errors = []
                     page.on("pageerror", lambda exc: errors.append(str(exc)))
                     await page.goto(url)
+                    await page.get_by_role("button", name="Settings").click()
+                    await page.get_by_label("Service", exact=True).select_option("search")
+                    await page.get_by_text("SerpAPI · https://serpapi.com", exact=True).wait_for()
+                    secret_field = page.get_by_label("New API key")
+                    assert await secret_field.get_attribute("type") == "password"
+                    await secret_field.fill("fixture-search-credential")
+                    await page.get_by_role("button", name="Apply key").click()
+                    await page.get_by_text("Session key applied.", exact=True).wait_for()
+                    assert await secret_field.input_value() == ""
+                    await page.get_by_role("button", name="Clear session key").click()
+                    await page.get_by_text("Key removed.", exact=True).wait_for()
+                    await page.get_by_label("Message text size").select_option("large")
+                    await page.reload()
+                    assert await page.locator("html.largeMessages").count() == 1
                     await page.get_by_role(
                         "button", name="Chat in current directory"
                     ).click(timeout=15000)
@@ -208,3 +222,4 @@ def test_restore_pairs_reordered_results_and_retains_long_messages():
     assert second["arguments"] == "b" and second["status"] == "Failed"
     assert missing["status"] == "No saved result"
     assert orphan["result"] == "orphan result"
+
