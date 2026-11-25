@@ -4,8 +4,10 @@ import asyncio
 import contextlib
 import json
 import secrets
+import time
 import webbrowser
 from bisect import bisect_left
+from functools import partial
 from html import escape
 
 from markdown_it import MarkdownIt
@@ -172,7 +174,10 @@ class BrowserUI(TerminalUI):
                     result = json.loads(raw)
                 except (TypeError, ValueError):
                     result = raw
-                row.update(result=raw, status=result_status(row["label"], result))
+                status = result_status(row["label"], result)
+                if row["label"] == "terminal" and isinstance(result, dict) and result.get("process_id"):
+                    status = "Launched"
+                row.update(result=raw, status=status)
         self.dirty()
 
     def conversation_changed(self, session, command):
@@ -256,8 +261,14 @@ class BrowserUI(TerminalUI):
 
     def terminal_progress(self, call_id, channel, text):
         row = self.tool_rows.get(call_id)
-        if row is None:
-            return
+        if row is not None:
+            self.row_progress(row, channel, text)
+
+    def background_callbacks(self, call_id):
+        row = self.tool_rows[call_id]
+        return partial(self.row_progress, row), partial(self.background_exited, row)
+
+    def row_progress(self, row, channel, text):
         if channel == "observation":
             row["observation"] = text
         else:
@@ -268,10 +279,21 @@ class BrowserUI(TerminalUI):
         self.tool_rows[call_id]["status"] = "Running"
         self.dirty()
 
+    def background_exited(self, row, result):
+        row["result"] = Agent._serialize_tool_result(result)
+        code = result.get("exit_code")
+        row["status"] = "Interrupted" if code is None else ("Completed" if code == 0 else "Failed")
+        row["elapsed"] = round(max(0, time.time() - result["started"]), 2)
+        self.dirty()
+
     def tool_finished(self, call_id, result, elapsed):
         row = self.tool_rows.pop(call_id)
-        row.update(result=Agent._serialize_tool_result(result), elapsed=round(elapsed, 2),
-                   status=result_status(row["label"], result))
+        if row["label"] == "terminal" and isinstance(result, dict) and result.get("process_id"):
+            if row["status"] == "Running":
+                row["result"] = Agent._serialize_tool_result(result)
+        else:
+            row.update(result=Agent._serialize_tool_result(result), elapsed=round(elapsed, 2),
+                       status=result_status(row["label"], result))
         self.dirty()
 
     def finish_tool_batch(self):

@@ -129,3 +129,50 @@ def test_browser_displays_terminal_output_before_command_exits(tmp_path):
                 await browser.close()
 
     asyncio.run(exercise())
+
+
+def test_background_commands_keep_their_own_bubbles_after_dispatch(tmp_path, monkeypatch):
+    async def exercise():
+        shell = Shell(Workspace(tmp_path))
+        ui = BrowserUI(SimpleNamespace())
+        seen = set()
+        class Tools:
+            async def dispatch(self, name, args):
+                return {"process_id": await shell.run_background(args["command"])}
+
+        class Model:
+            async def stream_chat(self, messages, **kwargs):
+                seen.add(messages[-1]["content"])
+                yield {"choices":[{"message":{"content":"Job running"}}]}
+
+        agent = Agent(SimpleNamespace(max_rounds=5, max_tokens=100, verbose=False),
+                      Model(), Tools(), ui, "test")
+        monkeypatch.setattr("main.TERMINAL_OBSERVATION_INTERVAL", 0.02)
+        monkeypatch.delenv("AGNES_TERMINAL_MODEL_UPDATES", raising=False)
+        ids = []
+        try:
+            for name in ("first", "second"):
+                code = ("import sys,time,pathlib;print(sys.argv[1],end='',flush=True);"
+                        "exec(\"while not pathlib.Path('release').exists(): time.sleep(.02)\");"
+                        "print('finished',file=sys.stderr);sys.exit(int(sys.argv[1]=='second'))")
+                args = {"action":"background","command":shlex.join([sys.executable,"-uc",code,name])}
+                parsed = {"id":"reused", "name":"terminal","args":args,"error":None}
+                ui.tools_requested([parsed])
+                result = await agent._execute_parsed_tool(parsed)
+                ui.finish_tool_batch()
+                ids.append(result["process_id"])
+            async def both_live():
+                while len(seen) < 2 or any(not r.get("observation") for r in ui.rows):
+                    await asyncio.sleep(.01)
+            await asyncio.wait_for(both_live(), 5)
+            assert [r["stdout"] for r in ui.rows] == ["first", "second"]
+            assert [r["status"] for r in ui.rows] == ["Running", "Running"]
+            (tmp_path / "release").touch()
+            results = await asyncio.gather(*(shell.wait_process(pid) for pid in ids))
+            assert [r["exit_code"] for r in results] == [0, 1]
+            assert [r["status"] for r in ui.rows] == ["Completed", "Failed"]
+            assert all(r["stderr"].strip() == "finished" for r in ui.rows)
+        finally:
+            await shell.close()
+
+    asyncio.run(exercise())
