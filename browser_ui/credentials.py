@@ -45,6 +45,8 @@ class WorkspaceCredentials:
         self.service = "Agnes workspace " + hashlib.sha256(scope).hexdigest()
 
     def target(self, name):
+        if name == "tavily":
+            return "Tavily", "https://api.tavily.com"
         if name == "search":
             return "SerpAPI", "https://serpapi.com"
         if name == "provider":

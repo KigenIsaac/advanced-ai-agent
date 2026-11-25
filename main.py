@@ -5278,6 +5278,7 @@ class App:
             try:
                 self.web_agent = WebAgent(
                     serpapi_key=await credentials.read("search") if credentials else None,
+                    tavily_key=await credentials.read("tavily") if credentials else None,
                     headless=self.config.headless_browser,
                     downloads_dir=str(self.config.effective_downloads_dir),
                 )
