@@ -99,6 +99,19 @@ Use **Session** to select or create a project, send a task, watch streamed repli
 
 Each server process serves one agent session on IPv4 loopback. Keep its tokenized URL private. `/exit` ends the agent session and leaves the transcript visible; Ctrl+C in the launching terminal stops the server.
 
+### Live terminal output
+
+For agent-issued foreground terminal commands, expand the existing tool bubble to
+follow stdout and stderr as the child flushes them. Each stream shows its latest
+16,000 characters. The usual exit code and final output still reach the agent.
+
+On longer runs the selected model automatically receives a read-only snapshot
+of the newest output (up to 4,096 characters) after 15 seconds of observation,
+and again when new output has accumulated, at most four times per command.
+These additional provider requests can use tokens. Set
+`AGNES_TERMINAL_MODEL_UPDATES=0` to keep live UI output without those requests.
+Background processes retain their process-ID based interface.
+
 ### Run tests
 
 Install development dependencies:

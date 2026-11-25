@@ -136,10 +136,10 @@ function updateStep(node, row) {
   summary.querySelector(".toolStatus").textContent = row.status;
   summary.querySelector("small").textContent = row.elapsed == null ? "" : row.elapsed.toFixed(2) + " s";
   node.classList.toggle("failed", ["Failed", "Interrupted"].includes(row.status));
-  for (const key of ["arguments", "result"]) {
+  for (const key of ["arguments", "stdout", "stderr", "observation", "result"]) {
     const section = node.querySelector("." + key);
     section.hidden = row[key] === undefined;
-    section.querySelector("pre").textContent = formatted(row[key]) ?? "";
+    section.querySelector("pre").textContent = (key === "arguments" || key === "result" ? formatted(row[key]) : row[key]) ?? "";
   }
 }
 function entry(row) {
@@ -153,7 +153,7 @@ function entry(row) {
     details.append(summary);
     if (row.kind === "tool") {
       summary.append(el("strong", ""), el("span", "", "toolStatus"), el("small", ""));
-      for (const [key, title] of [["arguments", "Arguments"], ["result", "Result"]]) {
+      for (const [key, title] of [["arguments", "Arguments"], ["stdout", "Standard output"], ["stderr", "Standard error"], ["observation", "Latest model update"], ["result", "Result"]]) {
         const section = el("section", "", key);
         section.append(el("h4", title), el("pre", ""));
         details.append(section);
