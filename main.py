@@ -1678,6 +1678,8 @@ class KeyEntry:
     cooldown_count: int = 0
     requests: int = 0
 
+    display_name: str = "API key"
+
     def is_available(self) -> bool:
         return (
             time.monotonic() >= self.cooldown_until
@@ -1689,7 +1691,7 @@ class KeyEntry:
         self.cooldown_count += 1
 
     def label(self) -> str:
-        return f"...{self.key[-6:]}" if len(self.key) > 6 else self.key
+        return self.display_name
 
 
 class KeyPool:
@@ -1697,7 +1699,8 @@ class KeyPool:
         if not keys:
             raise ValueError("at least one key is required")
         self._entries: list[KeyEntry] = [
-            KeyEntry(key=k, limiter=RateLimiter(rpm_per_key)) for k in keys
+            KeyEntry(key=k, limiter=RateLimiter(rpm_per_key), display_name=f"Key {i}")
+            for i, k in enumerate(keys, 1)
         ]
         self._select_lock: Optional[asyncio.Lock] = None
 
@@ -1834,6 +1837,7 @@ class AgnesClient:
             }
         if provider == "gemini":
             return {
+                "x-goog-api-key": api_key,
                 "Content-Type": "application/json",
                 "User-Agent": "agnes-agent/1.0",
             }
@@ -2277,7 +2281,7 @@ class AgnesClient:
 
             if response.status_code >= 400:
                 body = await response.aread(); await response.aclose()
-                raise AgnesAPIError(f"Provider API error {response.status_code}: {body.decode(errors='replace')[:2000]}")
+                raise AgnesAPIError(f"Provider API error {response.status_code}: {body.decode(errors='replace').replace(entry.key, '[redacted]')[:2000]}")
 
             yielded_any = False
             try:
@@ -2377,7 +2381,7 @@ class AgnesClient:
                 continue
 
             if response.status_code >= 400:
-                body = await response.aread(); await response.aclose(); raise AgnesAPIError(f"Anthropic API error {response.status_code}: {body.decode(errors='replace')[:2000]}")
+                body = await response.aread(); await response.aclose(); raise AgnesAPIError(f"Anthropic API error {response.status_code}: {body.decode(errors='replace').replace(entry.key, '[redacted]')[:2000]}")
 
             if not stream:
                 data = await response.aread(); await response.aclose();
@@ -2472,7 +2476,7 @@ class AgnesClient:
         attempt = 0
         while True:
             entry = await self._pool.acquire(); self.last_key_label = entry.label(); client = self._clients[entry.key]
-            request = client.build_request("POST", f"/{self.model}:generateContent?key={entry.key}", json=payload)
+            request = client.build_request("POST", f"/{self.model}:generateContent", json=payload)
             try:
                 response = await client.send(request)
             except _TRANSIENT_NET_ERRORS as e:
@@ -2495,7 +2499,7 @@ class AgnesClient:
                     except Exception: pass
                 continue
             if response.status_code >= 400:
-                body = await response.aread(); await response.aclose(); raise AgnesAPIError(f"Gemini API error {response.status_code}: {body.decode(errors='replace')[:2000]}")
+                body = await response.aread(); await response.aclose(); raise AgnesAPIError(f"Gemini API error {response.status_code}: {body.decode(errors='replace').replace(entry.key, '[redacted]')[:2000]}")
             data = await response.aread(); await response.aclose()
             try:
                 parsed = json.loads(data)
@@ -5184,11 +5188,22 @@ class App:
             many=self.args.api_keys,
             repeated=self.args.api_key,
         )
+        credentials = getattr(self.ui, "credentials", None)
+        workspace_key = False
+        if not keys and credentials:
+            stored = await credentials.read("provider")
+            if stored:
+                keys = [stored]
+                workspace_key = True
         if not keys and settings["provider"] in {"local", "ollama"}:
             # Only permit credential-free local inference on loopback, not on
             # remote OpenAI-compatible endpoints.
             if httpx.URL(settings["base_url"]).host in {"localhost", "127.0.0.1", "::1"}:
                 keys = ["local-no-api-key"]
+        if not keys and credentials:
+            self.ui.info("Open Settings to add a key for the selected provider.")
+            keys = [await credentials.await_provider()]
+            workspace_key = True
         if not keys:
             self.ui.error(
                 "No API key for the selected provider. Set its provider-specific "
@@ -5228,7 +5243,7 @@ class App:
             self.config, self.pool, on_retry=self.ui.retry_notice
         )
         try:
-            self._enable_smart_routing()
+            self._enable_smart_routing(workspace_key=workspace_key)
         except Exception:
             await self.client.close()
             raise
@@ -5236,6 +5251,7 @@ class App:
         if _HAS_WEB and not self.args.no_web:
             try:
                 self.web_agent = WebAgent(
+                    serpapi_key=await credentials.read("search") if credentials else None,
                     headless=self.config.headless_browser,
                     downloads_dir=str(self.config.effective_downloads_dir),
                 )
@@ -5257,7 +5273,7 @@ class App:
             await self._close_all()
         return 0
 
-    def _enable_smart_routing(self) -> None:
+    def _enable_smart_routing(self, *, workspace_key=False) -> None:
         """Opt-in route config; never send another provider's key to a new API."""
         config_name = getattr(self.args, "routing_config", None)
         path = Path(config_name).expanduser() if config_name else self.home / "routing.json"
@@ -5296,6 +5312,9 @@ class App:
             env_name = PROVIDER_BASE_URL_ENVS.get(route.provider)
             if env_name and os.environ.get(env_name):
                 route = replace(route, base_url=os.environ[env_name])
+            if workspace_key and route.provider == self.config.provider and route.base_url.rstrip("/") != self.config.base_url.rstrip("/"):
+                self.ui.warning(f"Skipping route {route.name}: workspace key belongs to a different endpoint")
+                continue
             api_keys[route.name] = keys
             usable.append(route)
         if not usable:

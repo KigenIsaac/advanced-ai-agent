@@ -20,6 +20,7 @@
             <span>◈</span> Session</button
           ><button data-view="skills"><span>▦</span> Skill library</button
           ><button data-view="tools"><span>⌘</span> Tools</button>
+          <button data-view="settings"><span aria-hidden="true">⚙</span> Settings</button>
         </nav>
         <div class="navFoot"><i></i> Local runtime</div>
       </aside>
@@ -113,6 +114,29 @@
           </div>
           <div id="toolList"></div>
         </section>
+        <section id="settings" hidden>
+          <div class="intro"><h1>Settings</h1></div>
+          <div class="settingsCard">
+            <h2>API credentials</h2>
+            <form id="credentialForm" autocomplete="off">
+              <label for="credentialName">Service</label>
+              <select id="credentialName"><option value="provider">Model provider</option><option value="search">Web search · SerpAPI</option></select>
+              <p id="credentialTarget"></p>
+              <p id="credentialState"></p>
+              <label for="credentialValue">New API key</label>
+              <input id="credentialValue" type="password" maxlength="4096" required autocomplete="new-password" spellcheck="false" autocapitalize="none" />
+              <label for="credentialMode">Store in</label>
+              <select id="credentialMode"><option value="session">Memory for this run</option><option value="save">Operating system credential store</option></select>
+              <div class="settingsActions"><button id="saveCredential" disabled>Apply key</button><button type="button" class="subtle" id="forgetCredential" hidden>Remove saved key</button></div>
+              <p id="credentialNotice" role="status"></p>
+            </form>
+          </div>
+          <div class="settingsCard">
+            <h2>Conversation display</h2>
+            <label for="textSize">Message text size</label>
+            <select id="textSize"><option value="standard">Standard</option><option value="large">Large</option></select>
+          </div>
+        </section>
         <p id="alert" role="alert"></p>
       </main>
     </div>
@@ -122,3 +146,4 @@
     </dialog>
   </body>
 </html>
+

@@ -248,7 +248,7 @@ class ProviderAdapter:
             if response.status_code >= 400:
                 body = await response.aread()
                 await response.aclose()
-                raise RuntimeError(f"Provider API error {response.status_code}: {body.decode(errors='replace')[:2000]}")
+                raise RuntimeError(f"Provider API error {response.status_code}: {body.decode(errors='replace').replace(entry.key, '[redacted]')[:2000]}")
 
             yielded_any = False
             try:

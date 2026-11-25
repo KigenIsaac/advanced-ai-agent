@@ -161,6 +161,8 @@ function drawRows(rows, prepend = false) {
 }
 function render(s) {
   const previous = state?.question?.id;
+  if (current === "settings" && !savingCredential && $("credentialName").value === "provider"
+      && (state?.needsCredential !== s.needsCredential || state?.provider !== s.provider)) loadCredential();
   state = s;
   $("project").textContent = s.project;
   $("context").textContent = s.agent + " · " + s.model;
@@ -294,12 +296,14 @@ async function query(append = false) {
 for (const b of document.querySelectorAll("[data-view]"))
   b.onclick = () => {
     current = b.dataset.view;
-    for (const view of ["session", "skills", "tools"])
+    for (const view of ["session", "skills", "tools", "settings"])
       $(view).hidden = view !== current;
     for (const other of document.querySelectorAll("[data-view]"))
       other.removeAttribute("aria-current");
     b.setAttribute("aria-current", "page");
     $("crumb").textContent = b.lastChild.textContent.trim();
+    $("credentialValue").value = "";
+    if (current === "settings") loadCredential();
     if (current === "skills") query();
   };
 $("search").oninput = () => {
@@ -363,3 +367,72 @@ $("history").onclick = async () => {
   } catch (e) { $("archives").replaceChildren(el("p", e.message)); }
 };
 poll();
+
+
+let credentialInfo, credentialRequest = 0, savingCredential = false;
+async function loadCredential(message = "") {
+  const serial = ++credentialRequest, name = $("credentialName").value;
+  credentialInfo = null;
+  $("credentialValue").value = "";
+  $("saveCredential").disabled = true;
+  $("forgetCredential").hidden = true;
+  $("credentialTarget").textContent = "";
+  $("credentialState").textContent = "";
+  $("credentialNotice").textContent = "Loading…";
+  try {
+    const info = await api("settings/" + name);
+    if (serial !== credentialRequest) return;
+    credentialInfo = info;
+    $("credentialTarget").textContent = info.label + " · " + info.endpoint;
+    const status = info.session ? "A session key is set." : info.persistent ? "A key is saved on this device." : "No workspace key stored.";
+    $("credentialState").textContent = status + (name === "provider"
+      ? " Command-line and environment keys take priority. Saved changes apply at startup."
+      : " Changes apply to the web-search integration.");
+    const modes = $("credentialMode");
+    modes.options[0].disabled = name === "provider" && !info.waiting;
+    modes.options[1].disabled = !info.available;
+    modes.value = modes.options[0].disabled ? "save" : "session";
+    $("saveCredential").disabled = modes.selectedOptions[0].disabled;
+    $("forgetCredential").hidden = !info.persistent && !info.session;
+    $("forgetCredential").textContent = info.session ? "Clear session key" : "Remove saved key";
+    $("credentialNotice").textContent = message || (!info.available ? "OS credential store unavailable." : "");
+  } catch {
+    if (serial === credentialRequest) $("credentialNotice").textContent = "Could not load this credential. Check the connection and endpoint.";
+  }
+}
+async function changeCredential(action) {
+  if (savingCredential || !credentialInfo) return;
+  const name = $("credentialName").value;
+  const payload = {action, endpoint:credentialInfo.endpoint, label:credentialInfo.label};
+  if (action === "save" || action === "session") payload.value = $("credentialValue").value;
+  $("credentialValue").value = "";
+  savingCredential = true;
+  for (const id of ["credentialName", "saveCredential", "forgetCredential"]) $(id).disabled = true;
+  let message;
+  try {
+    await api("settings/" + name, {method:"POST", body:JSON.stringify(payload)});
+    message = action === "save" ? "Key saved." : action === "session" ? "Session key applied." : "Key removed.";
+  } catch {
+    message = "Change failed. Check the key, endpoint and credential store.";
+  } finally {
+    delete payload.value;
+    await loadCredential(message);
+    savingCredential = false;
+    $("credentialName").disabled = $("forgetCredential").disabled = false;
+  }
+}
+$("credentialName").onchange = () => loadCredential();
+$("credentialForm").onsubmit = event => {
+  event.preventDefault();
+  changeCredential($("credentialMode").value);
+};
+$("forgetCredential").onclick = () => changeCredential(credentialInfo.session ? "clear" : "forget");
+function applyTextSize(size) {
+  $("textSize").value = size === "large" ? "large" : "standard";
+  document.documentElement.classList.toggle("largeMessages", $("textSize").value === "large");
+}
+try { applyTextSize(localStorage.getItem("agnes-text-size")); } catch { applyTextSize("standard"); }
+$("textSize").onchange = () => {
+  applyTextSize($("textSize").value);
+  try { localStorage.setItem("agnes-text-size", $("textSize").value); } catch {}
+};
