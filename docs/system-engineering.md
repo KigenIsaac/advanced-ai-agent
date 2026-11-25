@@ -1,6 +1,6 @@
 # Engineering a system
 
-The 55 skills in the `project` group share the agent's existing catalog and execution interface. Search by keyword or request pages with `{"group":"project","offset":0,"limit":50}`. Discovery documents each skill's arguments.
+The 55 design and repository skills below and the [262 assurance skills](engineering-assurance.md) in the `project` group share the agent's existing catalog and execution interface. Search by keyword or request pages with `{"group":"project","offset":0,"limit":50}`. Discovery documents each skill's arguments.
 
 The 49 design tools accept a JSON string in `text` or a workspace-relative JSON file in `path`. Add `output` to create a new workspace file. Text results such as SQL or Python are written verbatim. Structured results are written as JSON. The six repository workflows take `options`, documented in the catalog.
 
@@ -41,7 +41,7 @@ Run `python -m pytest -q test_schema.py test_workflow.py` in that directory. The
 - **Capacity and reliability** use the numeric fields listed in the catalog. Rates are per second unless otherwise stated. Target utilization is a fraction from greater than zero through one. Availability and hit rates use percentages. Queue and capacity outputs are estimates under the supplied rates.
 - **Repository inspection** uses the current workspace. Git inventory, history, status and related-test lookup operate at the repository root. Python public API inspection and comparison read source without importing it.
 
-## Complete skill list
+## Design and repository skill list
 
 ### Planning
 

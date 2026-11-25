@@ -1,0 +1,276 @@
+# Track / domain / name | observed expression | comparison | target expression | purpose
+[scale http]
+peak_service_rate|peak_rps|<=|sustainable_rps|Check measured sustainable throughput against peak demand.
+burst_concurrency|burst_concurrent|<=|inflight_limit|Check burst concurrency against the admission limit.
+payload_limit|largest_request_bytes|<=|request_limit_bytes|Check legitimate request sizes against gateway limits.
+upstream_slots|worker_count * slots_per_worker|<=|upstream_connection_limit|Check fleet fan-out against upstream connection capacity.
+response_bandwidth|peak_rps * response_bytes * 8|<=|egress_bps|Budget outbound link capacity for peak responses.
+socket_reserve|open_sockets + reserved_fds|<=|fd_limit|Check file descriptor headroom after reserving non-socket descriptors.
+keepalive_budget|idle_connections + active_connections|<=|connection_limit|Check idle keep-alives against active connection demand.
+upload_deadline|upload_bytes|<=|upload_bytes_per_sec * deadline_sec|Check whether supported uploads fit the request deadline.
+route_quota|tenant_peak_rps|<=|tenant_quota_rps|Check a tenant's peak demand against its allocated quota.
+load_step_latency|load_test_p99_ms|<=|latency_slo_ms|Gate a load-test step on observed tail latency.
+[scale workers]
+drain_before_deadline|backlog_items + arrival_rps * drain_window_sec|<=|completion_rps * drain_window_sec|Check backlog clearance while new work continues arriving.
+lease_capacity|leased_jobs|<=|available_workers * parallel_jobs_per_worker|Compare active leases with the fleet's execution slots.
+prefetch_memory|prefetch_count * max_job_bytes|<=|prefetch_budget_bytes|Bound memory occupied by prefetched jobs.
+visibility_window|job_p99_sec + ack_margin_sec|<=|visibility_timeout_sec|Check whether long jobs can acknowledge before redelivery.
+oldest_work_age|oldest_job_sec|<=|freshness_slo_sec|Gate worker freshness on the oldest waiting job.
+partition_parallelism|desired_consumers|<=|partition_count|Check whether independent partitions support the requested consumers.
+batch_deadline|batch_size * per_item_ms + commit_ms|<=|batch_timeout_ms|Check serial batch processing time against its deadline.
+dead_letter_storage|daily_rejected_jobs * rejection_bytes * retention_days|<=|dead_letter_budget_bytes|Size retained failed-job storage.
+scale_up_lag|arrival_rps * startup_sec|<=|free_queue_slots|Bound queue growth while an initially idle fleet starts.
+shutdown_drain|remaining_job_sec + flush_sec|<=|shutdown_grace_sec|Check whether an active job can finish during graceful shutdown.
+[scale database]
+pool_rollover|old_pool_connections + new_pool_connections + admin_reserve|<=|db_connection_limit|Check overlapping deployment connection pools.
+write_iops|writes_per_sec * iops_per_write|<=|provisioned_iops|Check storage demand from database writes.
+replica_replay|wal_generation_bytes_per_sec|<=|replica_apply_bytes_per_sec|Check whether a replica can keep up with generated WAL.
+working_set|hot_data_bytes + hot_index_bytes|<=|buffer_budget_bytes|Check whether hot data and indexes fit the buffer budget.
+transaction_hold|txn_p99_ms|<=|transaction_budget_ms|Gate long-held database transactions.
+lock_wait|lock_wait_p99_ms|<=|lock_wait_budget_ms|Gate application-visible lock contention.
+migration_space|table_copy_bytes + rebuild_index_bytes + reserve_bytes|<=|free_disk_bytes|Estimate free disk needed for a copy-and-rebuild migration.
+maintenance_window|vacuum_sec + analyze_sec|<=|maintenance_window_sec|Check whether serial maintenance fits the available window.
+shard_skew|busiest_shard_rps|<=|shard_capacity_rps|Check hottest shard capacity independently of fleet averages.
+query_scan_budget|rows_examined|<=|rows_returned * allowed_scan_factor|Check scan amplification for a measured query.
+[scale cache]
+resident_dataset|key_count * mean_entry_bytes|<=|cache_budget_bytes|Estimate resident entry memory including supplied per-entry overhead.
+refill_headroom|uncached_rps + refill_rps|<=|origin_capacity_rps|Check origin capacity during cache refill.
+eviction_pressure|evictions_per_min|<=|eviction_budget_per_min|Gate eviction churn at a given load.
+invalidation_delay|invalidation_p99_ms|<=|staleness_budget_ms|Check propagation time for invalidations.
+hot_key_load|hottest_key_rps|<=|single_node_key_capacity_rps|Check whether a single hot key overwhelms one cache node.
+ttl_freshness|effective_ttl_sec|<=|max_stale_sec|Check configured cache lifetime against freshness tolerance.
+cache_warmup|warmup_bytes|<=|warmup_bytes_per_sec * rollout_window_sec|Check whether the warmup dataset fits a rollout window.
+replication_memory|replica_count * dataset_bytes|<=|replica_memory_budget_bytes|Estimate memory for full cache replicas.
+stampede_fanout|concurrent_refills|<=|refill_concurrency_limit|Gate observed overlapping refills for one key.
+negative_ttl|negative_ttl_sec|<=|new_record_visibility_sec|Bound how long newly created records can appear missing.
+[scale storage]
+retention_growth|daily_ingest_bytes * retention_days|<=|usable_storage_bytes|Budget retained ingestion against usable capacity.
+inode_headroom|existing_files + forecast_files|<=|available_total_inodes|Check projected file count against inode capacity.
+multipart_count|upload_parts|<=|part_count_limit|Check multipart object limits.
+compaction_space|live_segment_bytes + temporary_compaction_bytes|<=|volume_capacity_bytes|Budget temporary disk during compaction.
+snapshot_growth|snapshot_count * changed_bytes_per_snapshot|<=|snapshot_budget_bytes|Budget incremental snapshot changes.
+restore_bandwidth|restore_bytes|<=|restore_bytes_per_sec * restore_window_sec|Check whether restoration volume fits the transfer window.
+export_quota|daily_exports * mean_export_bytes|<=|daily_export_quota_bytes|Estimate daily export traffic against quota.
+object_listing|listed_objects|<=|page_size * max_pages|Check pagination capacity for object listings.
+tier_transition|minimum_hot_days|<=|tier_after_days|Prevent tiering data before its hot-access interval expires.
+storage_runway|daily_net_growth_bytes * lead_time_days + reserve_bytes|<=|free_bytes|Check storage runway through provisioning lead time.
+[scale deployment]
+surge_slots|desired_replicas + max_surge|<=|cluster_slots|Check rollout surge scheduling.
+zone_survival|peak_rps|<=|total_capacity_rps - largest_zone_capacity_rps|Check available service capacity after losing the largest zone.
+canary_budget|canary_rps * evaluation_sec|<=|canary_exposure_requests|Limit requests exposed during canary evaluation.
+startup_probe|cold_start_p99_sec|<=|probe_period_sec * failure_threshold|Check the startup probe allowance.
+cpu_reserve|reserved_cpu_mcores + requested_cpu_mcores|<=|allocatable_cpu_mcores|Check CPU requests plus platform reserve.
+memory_reserve|reserved_memory_bytes + requested_memory_bytes|<=|allocatable_memory_bytes|Check memory requests plus platform reserve.
+scale_ceiling|predicted_replicas|<=|max_replicas|Check forecast demand against autoscaler ceiling.
+scale_floor|minimum_healthy_replicas|<=|min_replicas|Check that scale-down preserves required baseline replicas.
+image_pull|image_bytes|<=|pull_bytes_per_sec * pull_window_sec|Budget image transfer against the startup window.
+disruption_floor|healthy_replicas - concurrent_evictions|>=|required_ready_replicas|Check simultaneous eviction tolerance.
+[accuracy ingest]
+record_balance|source_count|==|accepted_count + rejected_count|Reconcile accepted and rejected input records with source count.
+duplicate_ids|duplicate_id_count|==|0|Detect duplicate identifiers in an ingest batch.
+missing_keys|missing_primary_keys|==|0|Detect records without a primary key.
+schema_rejections|schema_reject_count|<=|schema_reject_budget|Gate schema-validation failures.
+watermark_lag|arrival_lag_p99_sec|<=|watermark_delay_sec|Check event arrival lateness against the watermark.
+unexpected_fields|unexpected_field_count|<=|field_drift_budget|Gate unexpected incoming fields.
+encoding_failures|decode_error_count|==|0|Detect input bytes that could not be decoded.
+source_partition_coverage|received_partition_count|==|expected_partition_count|Reconcile source partitions received.
+replay_duplicates|side_effects_after_replay|==|0|Verify input replay produced no additional side effects.
+checksum_mismatches|payload_checksum_failures|==|0|Verify ingested payload checksums.
+[accuracy ledger]
+double_entry_balance|debit_minor_units|==|credit_minor_units|Reconcile ledger debits and credits in minor currency units.
+payout_reconciliation|authorized_minor_units|==|paid_minor_units + pending_minor_units + reversed_minor_units|Reconcile payout amounts by final disposition.
+currency_mismatch|mixed_currency_postings|==|0|Detect unconverted mixed-currency postings.
+orphan_postings|postings_without_account|==|0|Find postings to missing accounts.
+idempotent_posting|extra_postings_on_retry|==|0|Check retry behavior for ledger writes.
+fee_ceiling|charged_fee_minor_units|<=|contract_fee_limit_minor_units|Check assessed fees against a supplied contract cap.
+guarantee_capacity|reserved_minor_units + proposed_minor_units|<=|available_guarantee_minor_units|Check prospective guarantee capacity under existing reservations.
+installment_sum|scheduled_principal_minor_units|==|issued_principal_minor_units|Reconcile scheduled principal with issued principal.
+allocation_sum|payment_minor_units|==|principal_minor_units + interest_minor_units + fee_minor_units|Reconcile payment allocations.
+rounding_budget|rounding_difference_minor_units|<=|allowed_difference_minor_units|Check magnitude of rounding discrepancies.
+[accuracy api]
+contract_examples|passing_examples|==|declared_examples|Check published examples against the implementation.
+required_fields|missing_required_responses|==|0|Detect responses missing required fields.
+enum_drift|unknown_enum_values|==|0|Detect values outside the published enumeration.
+response_status|undocumented_status_count|==|0|Find observed HTTP statuses absent from the contract.
+pagination_gaps|missing_result_ids|==|0|Check pagination for missing records.
+pagination_overlap|repeated_result_ids|==|0|Check pagination for duplicate records.
+ordering|out_of_order_pairs|==|0|Check adjacent records against the declared ordering.
+write_read_consistency|roundtrip_field_mismatches|==|0|Detect changes during write/read round trips.
+version_compatibility|broken_consumer_contracts|==|0|Check backward compatibility with recorded consumer tests.
+timezone_roundtrip|timestamp_roundtrip_errors|==|0|Detect timestamp changes across serialization boundaries.
+[accuracy prediction]
+precision_floor|true_positive_count|>=|minimum_precision_ratio * predicted_positive_count|Check positive predictive value from labeled observations.
+recall_floor|true_positive_count|>=|minimum_recall_ratio * actual_positive_count|Check sensitivity against labeled positives.
+specificity_floor|true_negative_count|>=|minimum_specificity_ratio * actual_negative_count|Check correct rejection of labeled negatives.
+classification_accuracy|correct_predictions|>=|minimum_accuracy_ratio * labeled_predictions|Check aggregate labeled accuracy.
+mae_ceiling|absolute_error_sum|<=|max_mae * prediction_count|Check mean absolute error against an acceptance threshold.
+rmse_ceiling|squared_error_sum|<=|max_rmse * max_rmse * prediction_count|Check root-mean-square error without rounding intermediate values.
+coverage_floor|answered_cases|>=|minimum_coverage_ratio * eligible_cases|Check the fraction of eligible cases receiving an answer.
+abstention_budget|abstained_cases|<=|max_abstention_ratio * eligible_cases|Bound abstentions at a specified operating point.
+slice_gap|highest_slice_accuracy_ratio - lowest_slice_accuracy_ratio|<=|allowed_gap_ratio|Check the accuracy spread across evaluated cohorts.
+evaluation_leakage|overlapping_train_test_ids|==|0|Detect identity overlap between training and evaluation sets.
+[accuracy transformation]
+join_fanout|output_rows|<=|left_rows * max_join_fanout|Check maximum acceptable join expansion.
+unmatched_join|unmatched_rows|<=|unmatched_budget|Gate missing join partners.
+aggregate_reconciliation|detail_total_units|==|aggregate_total_units|Reconcile a materialized total against its details.
+canonical_collision|canonical_key_collisions|==|0|Detect distinct keys merged by normalization.
+unit_conversion|conversion_error_units|<=|allowed_conversion_error_units|Gate measured unit conversion error magnitude.
+null_injection|unexpected_new_nulls|==|0|Detect nulls introduced by a transformation.
+sequence_gaps|missing_sequence_numbers|==|0|Find missing items in an expected sequence.
+dedup_balance|input_rows|==|unique_output_rows + removed_duplicate_rows|Reconcile records removed by deduplication.
+reference_age|reference_age_days|<=|reference_valid_days|Check lookup data freshness at processing time.
+deterministic_rebuild|changed_rows_on_identical_input|==|0|Check rebuild reproducibility on identical input.
+[accuracy verification]
+requirement_coverage|requirements_with_passing_tests|==|required_features|Check acceptance evidence for each required feature count.
+boundary_coverage|tested_boundary_cases|==|identified_boundary_cases|Reconcile tested and identified boundary cases.
+mutation_score|killed_mutants|>=|minimum_score_ratio * viable_mutants|Gate sensitivity of tests to deliberate code mutations.
+flaky_budget|inconsistent_tests|<=|allowed_flaky_tests|Limit tests with inconsistent repeat outcomes.
+snapshot_drift|unapproved_snapshot_changes|==|0|Detect unapproved changes to reference outputs.
+migration_parity|changed_business_values|==|0|Check business value parity after migration.
+cross_runtime|cross_runtime_mismatches|==|0|Check agreement across supported runtimes.
+locale_roundtrip|locale_parse_failures|==|0|Verify localized display and parsing round trips.
+golden_replay|golden_case_failures|==|0|Check replay against approved reference cases.
+invariant_violations|invariant_failure_count|==|0|Gate observed violations of declared domain invariants.
+[safety access]
+tenant_boundary|cross_tenant_reads|==|0|Gate cross-tenant read failures from isolation tests.
+role_boundary|forbidden_actions_allowed|==|0|Gate observed authorization decisions allowing forbidden actions.
+revocation_delay|revocation_propagation_sec|<=|revocation_slo_sec|Check how quickly account revocation becomes effective.
+privileged_review|reviewed_privileged_accounts|==|privileged_accounts|Reconcile privileged accounts with completed reviews.
+orphan_accounts|enabled_accounts_without_owner|==|0|Detect enabled identities without an accountable owner.
+session_idle|session_idle_timeout_sec|<=|max_idle_sec|Check session inactivity timeout against policy.
+credential_age|oldest_service_key_days|<=|key_rotation_days|Check service credential rotation age.
+break_glass|unreviewed_emergency_sessions|==|0|Find emergency access sessions awaiting review.
+admin_mfa|mfa_enrolled_admins|==|active_admins|Reconcile active administrators with MFA enrollment.
+permission_expiry|expired_grants_still_active|==|0|Verify expired temporary grants have stopped authorizing access.
+[safety privacy]
+redaction|unredacted_sensitive_log_values|==|0|Check log redaction test findings.
+export_minimization|unapproved_export_fields|==|0|Check an export against its approved field allowlist.
+retention_expiry|records_past_retention|==|0|Find data retained beyond the supplied retention policy.
+deletion_propagation|deletion_completion_hours|<=|deletion_deadline_hours|Check deletion completion time across replicas and sinks.
+consent_coverage|eligible_consents|>=|records_requiring_consent|Reconcile required records with eligible consent evidence.
+masking_coverage|masked_sensitive_columns|==|identified_sensitive_columns|Check masking coverage of classified columns.
+residency|out_of_region_objects|==|0|Detect stored objects outside approved regions.
+environment_separation|production_records_in_test|==|0|Check environment-copy scans for real production records.
+download_expiry|signed_link_lifetime_sec|<=|max_link_lifetime_sec|Gate expiry on generated download links.
+subject_request_age|oldest_open_request_hours|<=|response_deadline_hours|Check age of the oldest outstanding subject request.
+[safety changes]
+destructive_preview|unreviewed_destructive_operations|==|0|Gate destructive operations without reviewed previews.
+approval_quorum|independent_approvals|>=|required_approvals|Verify required independent approval count.
+rollback_evidence|rollback_drill_age_days|<=|rollback_evidence_max_days|Check freshness of rollback evidence.
+artifact_signature|unsigned_release_artifacts|==|0|Gate release artifacts lacking verified signatures.
+deployment_freeze|unapproved_freeze_window_changes|==|0|Check changes against freeze-window approvals.
+blast_radius|affected_tenants|<=|approved_tenant_limit|Check the population exposed to a change.
+maintenance_overrun|elapsed_change_min|<=|approved_change_window_min|Gate changes exceeding their approved window.
+migration_backup|backup_age_before_migration_min|<=|max_backup_age_min|Verify backup recency before a migration.
+config_drift|unapproved_config_changes|==|0|Check deployed settings against approved configuration.
+reversible_fraction|reversible_steps|>=|minimum_reversible_ratio * deployment_steps|Check the rollback coverage of deployment steps.
+[safety transactions]
+maker_checker|self_approved_transactions|==|0|Detect transactions approved by their originator.
+per_operation_limit|requested_minor_units|<=|per_operation_limit_minor_units|Bound the value of one financial operation.
+daily_limit|already_spent_minor_units + requested_minor_units|<=|daily_limit_minor_units|Check cumulative daily outflow.
+duplicate_transfer|duplicate_provider_references|==|0|Detect duplicate references among completed transfers.
+recipient_confirmation|unconfirmed_destination_changes|==|0|Gate destination changes lacking confirmation.
+approval_expiry|seconds_since_approval|<=|approval_validity_sec|Check that a transfer approval is current.
+pending_exposure|pending_minor_units + new_minor_units|<=|pending_exposure_limit_minor_units|Bound unsettled exposure including a proposed transfer.
+compensation_limit|compensated_minor_units|<=|original_minor_units|Prevent a compensation larger than its original payment.
+posting_order|settled_before_authorization|==|0|Detect settlement events preceding authorization.
+withdrawal_reserve|available_minor_units - withdrawal_minor_units|>=|minimum_reserve_minor_units|Verify remaining reserves after withdrawal.
+[safety artifacts]
+build_provenance|artifacts_without_provenance|==|0|Detect build artifacts lacking provenance records.
+dependency_lock|unlocked_runtime_dependencies|==|0|Check dependency lock coverage.
+license_review|unreviewed_license_findings|==|0|Gate unresolved dependency license findings.
+image_identity|mutable_production_image_refs|==|0|Detect mutable production container references.
+release_checksum|published_hash_mismatches|==|0|Check published artifact integrity.
+secret_scan|confirmed_embedded_credentials|==|0|Gate confirmed embedded credentials in build output.
+component_inventory|unlisted_shipped_components|==|0|Check released components against the bill of materials.
+patch_latency|critical_patch_age_days|<=|critical_patch_slo_days|Check remediation age for critical patch findings.
+build_reproducibility|nonreproducible_artifact_count|==|0|Compare repeat builds for unreproducible artifacts.
+dependency_origin|unapproved_dependency_sources|==|0|Check dependencies against approved registries or sources.
+[safety automation]
+human_gate|executed_without_required_confirmation|==|0|Check automated actions requiring human confirmation.
+tool_scope|out_of_scope_tool_calls|==|0|Detect agent actions outside allowed tool scope.
+action_budget|executed_actions|<=|action_budget|Gate the number of actions in one automation run.
+token_budget|input_tokens + output_tokens|<=|run_token_budget|Check per-run inference usage against an explicit budget.
+cost_budget|spent_cost_micros + reserved_cost_micros|<=|cost_limit_micros|Check spent and reserved inference budget.
+write_scope|writes_outside_workspace|==|0|Check filesystem write boundary test observations.
+egress_policy|unapproved_egress_destinations|==|0|Gate observed automation egress destinations.
+stop_latency|cancel_to_quiescence_ms|<=|cancel_deadline_ms|Check how quickly automation stops producing side effects.
+review_sampling|reviewed_high_impact_actions|==|high_impact_actions|Check review coverage for high-impact automation actions.
+audit_binding|actions_without_request_id|==|0|Check that executed actions link to their originating request.
+[reliability recovery]
+recovery_point|lost_data_window_sec|<=|rpo_sec|Compare observed data loss window to recovery point objective.
+recovery_time|restore_to_ready_sec|<=|rto_sec|Compare recovery duration to recovery time objective.
+backup_success|successful_backups|>=|minimum_backup_success_ratio * scheduled_backups|Check scheduled backup success fraction.
+backup_verification|unverified_restore_points|==|0|Find retained restore points lacking verification.
+backup_isolation|independent_backup_copies|>=|required_independent_copies|Check backup copies across independent failure domains.
+failover_detection|detection_sec + promotion_sec + routing_sec|<=|failover_budget_sec|Budget detection, promotion and rerouting time.
+restore_integrity|restored_object_hash_failures|==|0|Verify restored object content against known hashes.
+runbook_freshness|days_since_recovery_exercise|<=|exercise_interval_days|Check recovery rehearsal age.
+recovery_dependencies|unavailable_recovery_dependencies|==|0|Check dependencies required by a recovery plan.
+rejoin_backlog|rejoin_backlog_bytes|<=|catchup_bytes_per_sec * rejoin_window_sec|Check a recovered node's catch-up window.
+[reliability messaging]
+ack_loss|acked_messages_missing|==|0|Detect acknowledged messages missing after restart.
+ordering_violation|out_of_order_deliveries|==|0|Check per-key delivery order.
+consumer_lag|lag_messages|<=|consumer_lag_limit|Check subscriber lag against its limit.
+poison_retries|attempts_before_quarantine|<=|max_delivery_attempts|Bound repeated handling of poison messages.
+outbox_gap|committed_events_without_outbox|==|0|Check transaction-to-outbox completeness.
+redrive_success|successfully_redriven|>=|minimum_redrive_ratio * redriven_messages|Check replay success after quarantine.
+dedup_window|dedup_retention_sec|>=|max_redelivery_sec|Check that deduplication state covers the redelivery window.
+heartbeat_timeout|heartbeat_interval_sec + heartbeat_jitter_sec|<|consumer_timeout_sec|Allow heartbeat jitter before declaring consumer loss.
+retention_lag|consumer_outage_sec + replay_duration_sec|<=|broker_retention_sec|Check event availability through an outage and replay.
+subscriber_coverage|healthy_subscriptions|==|expected_subscriptions|Detect missing or unhealthy required subscriptions.
+[reliability dependencies]
+timeout_hierarchy|downstream_timeout_ms + overhead_ms|<=|caller_timeout_ms|Check downstream timeout fits the caller envelope.
+circuit_recovery|probe_interval_sec|<=|dependency_recovery_slo_sec|Bound recovery detection for a circuit breaker.
+retry_load|primary_rps + retry_rps|<=|dependency_safe_rps|Check that retries fit the downstream load budget.
+fallback_success|successful_fallbacks|>=|minimum_fallback_ratio * fallback_attempts|Check measured fallback success fraction.
+bulkhead_slots|critical_reserved_slots|>=|required_critical_slots|Check isolated capacity for critical dependency calls.
+dns_expiry|dns_cache_sec|<=|endpoint_move_budget_sec|Bound stale routing after dependency endpoint moves.
+certificate_runway|certificate_days_remaining|>=|renewal_lead_days + response_margin_days|Check certificate renewal runway.
+dependency_depth|serial_dependency_p99_ms|<=|end_to_end_budget_ms|Check measured dependency chain latency against user budget.
+connection_reuse|new_connections_per_sec|<=|handshake_capacity_per_sec|Check cold handshake pressure.
+degraded_capacity|critical_path_rps|<=|fallback_capacity_rps|Check capacity of a dependency's degraded path.
+[reliability telemetry]
+scrape_gaps|longest_scrape_gap_sec|<=|max_scrape_gap_sec|Check continuity of metric collection.
+trace_coverage|traced_requests|>=|min_trace_ratio * observed_requests|Check tracing coverage at the declared sampling target.
+log_delivery|lost_log_events|<=|log_loss_budget|Check log transport loss.
+metric_cardinality|active_time_series|<=|time_series_budget|Gate monitoring system cardinality.
+alert_delay|event_to_page_sec|<=|page_deadline_sec|Check time from incident signal to notification.
+false_alerts|false_pages|<=|false_page_budget|Gate non-actionable pages during an observation interval.
+silent_alerts|undelivered_test_pages|==|0|Detect broken notification paths using test pages.
+clock_skew|maximum_clock_skew_ms|<=|clock_skew_budget_ms|Bound timestamp disagreement across hosts.
+telemetry_buffer|telemetry_bytes_per_sec * collector_outage_sec|<=|buffer_capacity_bytes|Check telemetry buffering during collector outages.
+slo_coverage|instrumented_critical_flows|==|critical_flow_count|Check monitoring coverage of critical user journeys.
+[reliability release]
+canary_error_rate|canary_errors|<=|canary_error_limit_ratio * canary_requests|Gate canary error ratio from observed traffic.
+baseline_regression|candidate_p95_ms - baseline_p95_ms|<=|allowed_regression_ms|Compare candidate latency against a baseline.
+rollback_time|rollback_completion_sec|<=|rollback_target_sec|Check time to undo a bad release.
+health_convergence|healthy_after_rollout|==|desired_after_rollout|Check rollout convergence.
+restart_churn|restarts_in_window|<=|restart_budget|Gate repeated process restarts after rollout.
+readiness_flaps|readiness_transitions|<=|readiness_flap_budget|Check readiness oscillation.
+deployment_frequency|successful_deployments|>=|required_deployments|Check delivered changes over a defined measurement window.
+change_failure|failed_changes|<=|change_failure_limit_ratio * deployed_changes|Check release failure fraction.
+lead_time|commit_to_production_hours|<=|lead_time_target_hours|Check delivery lead time for a measured change.
+rollback_compatibility|failed_old_version_reads|==|0|Check previous-version readers against migrated data.
+[reliability distributed]
+quorum_survival|voting_members - unavailable_members|>=|commit_quorum|Check whether remaining voters can commit.
+split_brain|simultaneous_primary_intervals|==|0|Detect overlapping primary ownership intervals.
+fencing|stale_writer_commits|==|0|Check rejection of stale writers after leadership changes.
+read_your_writes|stale_reads_after_ack|==|0|Check session read-your-writes behavior.
+lost_update|overwritten_committed_updates|==|0|Check concurrent update preservation.
+monotonic_reads|observed_version_regressions|==|0|Detect versions moving backwards for one observer.
+replication_delay|replication_p99_ms|<=|replication_slo_ms|Check measured propagation delay.
+lease_renewal|renew_interval_ms + max_pause_ms + network_margin_ms|<|lease_duration_ms|Check lease safety margin under pauses and network delay.
+convergence|divergent_replicas_after_window|==|0|Check replica convergence after a bounded interval.
+checkpoint_gap|time_since_checkpoint_sec|<=|checkpoint_interval_limit_sec|Bound uncheckpointed work before restart.
+[reliability operations]
+incident_ack|incident_to_ack_min|<=|ack_target_min|Check incident acknowledgement timeliness.
+incident_restore|incident_to_restore_min|<=|restore_target_min|Check user-facing restoration time.
+oncall_coverage|uncovered_support_minutes|==|0|Check support schedule gaps.
+runbook_coverage|alerts_with_runbook|==|actionable_alerts|Check runbook coverage of actionable alerts.
+action_closure|overdue_corrective_actions|<=|overdue_action_budget|Gate overdue incident remediation work.
+recurrent_incidents|repeat_incidents|<=|recurrence_budget|Check recurrence after corrective actions.
+maintenance_notice|notice_lead_hours|>=|required_notice_hours|Check advance notice for planned disruption.
+service_ownership|unowned_production_services|==|0|Find production services without an accountable owner.
+drill_coverage|exercised_critical_scenarios|==|defined_critical_scenarios|Check operational exercise coverage by scenario count.
+unplanned_outage|unplanned_downtime_minutes|<=|outage_budget_minutes|Compare unplanned downtime with the interval's allowance.

@@ -18,7 +18,7 @@ def python_source(text):
     return ast.parse(text)
 
 
-def json_value(text):
+def json_value(text, *, parse_float=None):
     def unique(pairs):
         result = {}
         for key, value in pairs:
@@ -33,7 +33,7 @@ def json_value(text):
             raise ValueError("non-finite JSON number")
         return value
 
-    return json.loads(text, object_pairs_hook=unique, parse_constant=number, parse_float=number)
+    return json.loads(text, object_pairs_hook=unique, parse_constant=number, parse_float=parse_float or number)
 
 
 def table(text):
