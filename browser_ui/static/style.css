@@ -429,23 +429,6 @@ textarea {
     max-height: 40vh;
   }
 }
-.answer h4 {
-  margin: 10px 0 5px;
-}
-.answer p + p {
-  margin-top: 3px;
-}
-.answer pre {
-  padding: 12px;
-  background: #172d25;
-  color: #e7f0df;
-  border-radius: 5px;
-}
-.answer code {
-  background: #e7ebdf;
-  border-radius: 3px;
-  padding: 1px 4px;
-}
 #results:has(> .choice) {
   display: flex;
   flex-wrap: wrap;
@@ -470,3 +453,86 @@ textarea {
     display: none;
   }
 }
+
+/* Conversation layout */
+:root {background:#f8f9f6;--line:#dce2dc;--muted:#506357}
+main {width:100%;max-width:1440px;margin-inline:auto}
+header {min-height:56px}
+#session {max-width:1040px;margin:auto;display:flex;flex-direction:column}
+#session .intro {margin:18px 0 12px}
+#session .intro h1 {font-size:clamp(28px,3.4vw,46px);letter-spacing:-.045em}
+.metrics {gap:8px 22px;padding:9px 0 14px;border-top:0}
+.metrics > div,.metrics > div:first-child {min-width:0;padding:0;border:0;display:flex;align-items:baseline;gap:5px}
+.metrics small {margin:0}
+.metrics strong {font-size:12px}
+.sessionBar {margin:14px 0 8px}
+#feed {flex:1;min-height:90px;max-height:none;padding:4px 10px 12px 0;scrollbar-gutter:stable;overscroll-behavior:contain;overflow-anchor:none}
+.entry {max-width:84ch;margin:10px auto 10px 0}
+.entry.assistant {background:none;border:0;padding:10px 0}
+.entry.user {background:#eaf1e9;border:1px solid #d5e3d6;border-radius:14px 14px 3px 14px;padding:12px 18px;margin-left:auto;margin-right:0;max-width:min(82%,72ch);width:fit-content}
+.entry.tool {padding:0;border:1px solid #d5dfd8;border-radius:9px;background:#f1f5f1}
+.entry.tool.failed {background:#fff1ed;border-color:#e3c3b9}
+.entry details {padding:9px 12px}
+.entry summary {cursor:pointer;font-size:13px;line-height:1.6}
+.entry summary strong {font-family:ui-monospace,monospace;margin-inline:5px 12px}
+.toolStatus,.entry summary small {display:inline-block;color:var(--muted);font-size:12px;margin-right:8px}
+.entry details h4 {margin:12px 0 5px;font-size:12px}
+.entry details pre {max-height:18rem;padding:10px;background:white;border:1px solid var(--line);border-radius:5px}
+.answer {line-height:1.65;min-width:0}
+.answer :is(h1,h2,h3,h4,h5,h6) {font-family:inherit;font-weight:650;line-height:1.25;letter-spacing:-.025em;margin:1.1em 0 .35em}
+.answer h1 {font-size:1.65rem}
+.answer h2 {font-size:1.4rem}
+.answer h3 {font-size:1.16rem}
+.entry .answer p,.answer li {white-space:normal;font-size:15px;line-height:1.65}
+.answer p,.answer ul,.answer ol,.answer blockquote,.answer .tableScroll,.answer .codeBlock {margin:.65em 0}
+.answer > :first-child {margin-top:0}
+.answer > :last-child {margin-bottom:0}
+.answer li > :is(ul,ol) {margin:0}
+.answer :is(ul,ol) {padding-left:1.6em}
+.answer blockquote {border-left:3px solid #8ba995;padding:1px 1em;color:var(--muted)}
+.answer hr {border:0;border-top:1px solid var(--line)}
+.answer a {color:#206143;text-underline-offset:3px}
+.answer code {font-size:.88em;background:#e5ece6;border-radius:3px;padding:1px 4px}
+.answer .codeBlock {border-radius:9px;overflow:hidden;background:#172d25;color:#e7f0df}
+.answer .codeBar {display:flex;align-items:center;justify-content:space-between;padding:6px 12px;background:#253d32;color:#e1e9df;font:12px ui-monospace,monospace}
+.codeBar button {background:transparent;color:inherit;border:1px solid #637a68;padding:3px 9px}
+.answer pre {padding:12px;tab-size:4}
+.answer pre code {padding:0;background:transparent;font-size:inherit}
+.tableScroll {overflow-x:auto;max-width:100%}
+.answer table {border-collapse:collapse;min-width:min(100%,20rem);font-size:14px}
+.answer :is(td,th) {padding:6px 12px;text-align:left;border:1px solid var(--line)}
+.answer th {background:#eaf0e9}
+.answer .align-center {text-align:center}
+.answer .align-right {text-align:right}
+.answer .taskItem {list-style:none}
+#promptBox {margin:8px 0 12px;background:#fff;box-shadow:0 6px 20px #192e2210}
+#message {max-height:18vh}
+#alert:empty {display:none}
+dialog {width:min(480px,calc(100% - 32px));max-height:75dvh;border:1px solid var(--line);border-radius:14px;padding:18px 22px;color:inherit;box-shadow:0 16px 70px #16271d30}
+dialog::backdrop {background:#11261d55}
+dialog .sessionBar {margin:0 0 12px}
+.archiveRow {width:100%;border:0;border-top:1px solid var(--line);background:white;text-align:left;padding:14px 4px;display:grid;gap:4px;color:inherit;overflow-wrap:anywhere}
+.archiveRow:hover {background:#eff4ef}
+.archiveRow small {color:var(--muted)}
+@media(min-height:620px){
+  main:has(#session:not([hidden])) {display:flex;flex-direction:column;height:100dvh;padding-bottom:0}
+  #session {width:100%;min-height:0;flex:1}
+}
+@media(max-width:720px){
+  .layout {display:flex;flex-direction:column}
+  aside {width:100%;height:auto;padding-block:6px}
+  main:has(#session:not([hidden])) {height:auto;flex:1;min-height:0}
+  header {min-height:40px}
+  #session .intro {margin:10px 0 4px;gap:8px}
+  #session .intro p {margin:4px 0}
+  .metrics {gap:4px 12px;padding:4px 0 8px}
+  .sessionBar {margin:8px 0}
+  .entry.user {max-width:94%}
+  #feed {padding-right:3px}
+  #promptBox {padding:10px 12px;margin-bottom:max(8px,env(safe-area-inset-bottom))}
+  #message {min-height:40px}
+}
+@media(max-width:720px) and (min-height:620px){
+  .layout:has(#session:not([hidden])) {height:100dvh}
+}
+@media(max-height:619px){#feed {max-height:65dvh}}

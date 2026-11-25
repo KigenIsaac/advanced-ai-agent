@@ -71,29 +71,93 @@ async function send(text, id = state?.question?.id) {
     controls();
   }
 }
-function assistantText(source) {
-  const container = el("div", "", "answer");
-  const parts = source.split(/^```[^\n]*$/m);
-  parts.forEach((part, index) => {
-    if (index % 2) {
-      container.append(el("pre", part.replace(/^\n|\n$/g, "")));
-      return;
+function markdownBody(html) {
+  const body = el("div", "", "answer");
+  // HTML is produced by the local CommonMark renderer with raw HTML disabled.
+  body.innerHTML = html;
+  for (const link of body.querySelectorAll("a[href]")) {
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+  }
+  for (const table of body.querySelectorAll("table")) {
+    const wrap = el("div", "", "tableScroll");
+    wrap.tabIndex = 0;
+    table.replaceWith(wrap);
+    wrap.append(table);
+  }
+  for (const cell of body.querySelectorAll("td[style],th[style]")) {
+    cell.className = "align-" + cell.style.textAlign;
+    cell.removeAttribute("style");
+  }
+  for (const pre of body.querySelectorAll("pre")) {
+    const code = pre.querySelector("code");
+    if (!code) continue;
+    const wrap = el("section", "", "codeBlock"), bar = el("div", "", "codeBar");
+    const copy = button("Copy", async () => {
+      try {
+        await navigator.clipboard.writeText(code.textContent);
+        copy.textContent = "Copied";
+      } catch { copy.textContent = "Copy unavailable"; }
+    });
+    bar.append(el("span", code.className.replace(/^language-/, "") || "Code"), copy);
+    pre.replaceWith(wrap);
+    wrap.append(bar, pre);
+  }
+  for (const li of body.querySelectorAll("li")) {
+    const first = li.firstElementChild?.tagName === "P" ? li.firstElementChild : li;
+    const text = first.firstChild;
+    const match = text?.nodeType === Node.TEXT_NODE && /^\[([ xX])\]\s+/.exec(text.data);
+    if (!match) continue;
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = match[1] !== " ";
+    box.disabled = true;
+    text.deleteData(0, match[0].length);
+    first.prepend(box, " ");
+    li.className = "taskItem";
+  }
+  return body;
+}
+function formatted(value) {
+  if (typeof value === "string") {
+    try { return JSON.stringify(JSON.parse(value), null, 2); } catch { return value; }
+  }
+  return JSON.stringify(value, null, 2);
+}
+function entry(row, expanded) {
+  const node = el("article", "", "entry " + row.kind);
+  node.dataset.id = row.id;
+  if (row.kind === "tool") {
+    const details = document.createElement("details"), summary = document.createElement("summary");
+    details.open = expanded;
+    summary.append(el("strong", row.label), el("span", row.status, "toolStatus"));
+    if (row.elapsed != null) summary.append(el("small", row.elapsed.toFixed(2) + " s"));
+    if (row.status === "Failed") node.classList.add("failed");
+    details.append(summary);
+    for (const [key, title] of [["arguments", "Arguments"], ["result", "Result"]]) {
+      if (row[key] !== undefined && row[key] !== "") details.append(el("h4", title), el("pre", formatted(row[key])));
     }
-    for (const line of part.split("\n")) {
-      const heading = line.match(/^#{1,6} (.+)/),
-        node = el(heading ? "h4" : "p", "");
-      const body = heading ? heading[1] : line.replace(/^[-*] /, "• ");
-      for (const fragment of body.split(/(\*\*[^*]+\*\*|`[^`]+`)/g)) {
-        if (fragment.startsWith("**") && fragment.endsWith("**"))
-          node.append(el("strong", fragment.slice(2, -2)));
-        else if (fragment.startsWith("`") && fragment.endsWith("`"))
-          node.append(el("code", fragment.slice(1, -1)));
-        else node.append(document.createTextNode(fragment));
-      }
-      if (body) container.append(node);
-    }
-  });
-  return container;
+    node.append(details);
+  } else {
+    const labels = {user:"You", assistant:state.agent, console:"Console", error:"Error", notice:"Session", activity:"Activity"};
+    node.append(el("small", row.label || labels[row.kind] || row.kind));
+    node.append(row.html !== undefined ? markdownBody(row.html) : el(row.kind === "console" ? "pre" : "p", row.text));
+  }
+  return node;
+}
+const rendered = new Map();
+let firstAvailable, hasOlder;
+function drawRows(rows, prepend = false) {
+  const feed = $("feed");
+  for (const row of prepend ? [...rows].reverse() : rows) {
+    const key = JSON.stringify(row), old = rendered.get(row.id);
+    if (old?.key === key) continue;
+    const node = entry(row, !!old?.node.querySelector("details")?.open);
+    if (old) old.node.replaceWith(node);
+    else if (prepend) feed.prepend(node);
+    else feed.append(node);
+    rendered.set(row.id, {key, node});
+  }
 }
 function render(s) {
   const previous = state?.question?.id;
@@ -112,44 +176,16 @@ function render(s) {
     s.skills.toLocaleString() + " skills available in the installed runtime.";
   const feed = $("feed"),
     atEnd = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 48;
-  const rows = s.rows.map((row) => {
-    const n = el("article", "", "entry " + row.kind);
-    n.append(
-      el(
-        "small",
-        row.label ||
-          {
-            user: "You",
-            assistant: s.agent,
-            console: "Console",
-            error: "Error",
-            notice: "Session",
-            tool: "Result",
-            activity: "Activity",
-          }[row.kind] ||
-          row.kind,
-      ),
-    );
-    n.append(
-      row.kind === "assistant"
-        ? assistantText(row.text)
-        : el(row.kind === "console" ? "pre" : "p", row.text),
-    );
-    return n;
-  });
-  feed.replaceChildren(
-    ...(rows.length
-      ? rows
-      : [
-          el(
-            "p",
-            s.question?.chat
-              ? "Send a task to start this conversation."
-              : "Choose a session option below.",
-            "empty",
-          ),
-        ]),
-  );
+  if (s.firstId !== firstAvailable || (s.hasOlder && !s.rows.some(row => rendered.has(row.id)))) {
+    feed.replaceChildren();
+    rendered.clear();
+    firstAvailable = s.firstId;
+    hasOlder = s.hasOlder;
+  }
+  feed.querySelector(".empty")?.remove();
+  drawRows(s.rows);
+  if (!s.rows.length) feed.append(el("p", s.question?.chat ? "Send a task to start this conversation." : "Choose a session option below.", "empty"));
+  $("earlier").hidden = !hasOlder;
   if (atEnd) feed.scrollTop = feed.scrollHeight;
   const q = s.question;
   $("runMode").hidden = !q?.chat || s.swarm;
@@ -191,7 +227,7 @@ async function poll() {
       const s = await api("state?since=" + (state?.revision ?? -1));
       connected = true;
       if (s) render(s);
-      else if (state) render(state);
+      else controls();
       $("alert").textContent = "";
       if (state?.done) break;
     } catch (e) {
@@ -263,7 +299,7 @@ for (const b of document.querySelectorAll("[data-view]"))
     for (const other of document.querySelectorAll("[data-view]"))
       other.removeAttribute("aria-current");
     b.setAttribute("aria-current", "page");
-    $("crumb").textContent = b.textContent.slice(1).trim();
+    $("crumb").textContent = b.lastChild.textContent.trim();
     if (current === "skills") query();
   };
 $("search").oninput = () => {
@@ -294,7 +330,36 @@ $("message").onkeydown = (e) => {
 for (const [id, cmd] of [
   ["projects", "/projects"],
   ["new", "/new"],
-  ["history", "/history"],
+
 ])
   $(id).onclick = () => send(cmd);
+$("earlier").onclick = async () => {
+  const feed = $("feed"), earliest = feed.firstElementChild, first = firstAvailable;
+  $("earlier").disabled = true;
+  try {
+    const batch = await api("earlier?before=" + earliest.dataset.id);
+    if (first !== firstAvailable) return;
+    const height = feed.scrollHeight;
+    drawRows(batch.rows, true);
+    feed.scrollTop += feed.scrollHeight - height;
+    hasOlder = batch.hasOlder;
+    $("earlier").hidden = !hasOlder;
+  } catch (e) { $("alert").textContent = e.message; }
+  finally { $("earlier").disabled = false; }
+};
+$("closeArchive").onclick = () => $("archive").close();
+$("history").onclick = async () => {
+  const prompt = state.question.id;
+  $("archives").replaceChildren(el("p", "Loading conversations…"));
+  $("archive").showModal();
+  try {
+    const entries = await api("history");
+    $("archives").replaceChildren(...entries.map(item => {
+      const b = button("", () => { $("archive").close(); send("/resume " + item.id, prompt); }, "archiveRow");
+      b.append(el("strong", item.title || "Untitled conversation"), el("small", item.messages + " messages · " + new Date(item.updated_at * 1000).toLocaleString()));
+      return b;
+    }));
+    if (!entries.length) $("archives").append(el("p", "No archived conversations yet.", "empty"));
+  } catch (e) { $("archives").replaceChildren(el("p", e.message)); }
+};
 poll();

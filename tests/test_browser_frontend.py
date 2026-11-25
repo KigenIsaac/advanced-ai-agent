@@ -14,6 +14,13 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_browser_operates_real_cli_session(tmp_path):
     async def exercise():
         requests = []
+        report = (
+            "## Catalog check\n\n**Verified** the skill catalog.\n\n"
+            "| Skill | Result |\n| --- | ---: |\n| SHA-256 | Available |\n\n"
+            "> Session tools\n\n- [x] Search catalog\n- Check results\n  - Read name\n\n"
+            "```python\nprint('sha256')\n```\n\n~~pending~~\n\n"
+            "[Details](https://example.com)\n\n<script>window.injected=true</script>"
+        )
 
         async def provider(request):
             data = await request.json()
@@ -41,7 +48,7 @@ def test_browser_operates_real_cli_session(tmp_path):
             deltas = (
                 [msg]
                 if "tool_calls" in msg
-                else [{"content": "**Verified** "}, {"content": "the skill catalog."}]
+                else [{"content": report[:18]}, {"content": report[18:]}]
             )
             for delta in deltas:
                 chunk = {"choices": [{"index": 0, "delta": delta}]}
@@ -111,6 +118,16 @@ def test_browser_operates_real_cli_session(tmp_path):
                         timeout=20000
                     )
                     assert len(requests) == 2
+                    answer = page.locator(".assistant .answer")
+                    assert await answer.get_by_role("heading", name="Catalog check").count() == 1
+                    assert await answer.get_by_role("cell", name="Available").count() == 1
+                    assert await answer.get_by_role("checkbox").is_checked()
+                    assert await answer.locator("blockquote, s, pre code, li li").count() == 4
+                    assert await answer.locator("script").count() == 0
+                    assert not await page.evaluate("window.injected")
+                    trace = page.locator("#feed details").filter(has_text="skill_catalog")
+                    await trace.locator("summary").click()
+                    assert "text_sha256" in await trace.locator("pre").last.inner_text()
                     await page.reload()
                     await page.get_by_text("Verified", exact=True).wait_for()
                     await page.locator("#new").click()
@@ -122,6 +139,17 @@ def test_browser_operates_real_cli_session(tmp_path):
                     assert await page.evaluate(
                         "document.documentElement.scrollWidth <= innerWidth"
                     )
+                    await page.get_by_role("button", name="History", exact=True).click()
+                    await page.get_by_role("dialog").get_by_role("button", name="Check the catalog").click()
+                    await answer.get_by_role("heading", name="Catalog check").wait_for()
+                    await trace.locator("summary").click()
+                    assert "sha256" in await trace.locator("pre").first.inner_text()
+                    assert "text_sha256" in await trace.locator("pre").last.inner_text()
+                    for width in [320, 390, 768, 1440]:
+                        await page.set_viewport_size({"width": width, "height": 810})
+                        assert await page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+                        box = await page.locator("#send").bounding_box()
+                        assert box and box["y"] + box["height"] <= 810
                     assert (await page.request.get(origin + "/api/state")).status == 403
                     headers = {
                         "Authorization": "Bearer " + token,
@@ -157,3 +185,26 @@ def test_browser_operates_real_cli_session(tmp_path):
             await runner.cleanup()
 
     asyncio.run(exercise())
+
+
+def test_restore_pairs_reordered_results_and_retains_long_messages():
+    from types import SimpleNamespace
+    from browser_ui.server import BrowserUI
+
+    calls = [{"id": i, "function": {"name": "lookup", "arguments": i}} for i in "abc"]
+    long_message = "paragraph\n\n" * 4000
+    messages = [{"role": "user", "content": str(i)} for i in range(180)] + [
+        {"role": "assistant", "content": long_message, "tool_calls": calls},
+        {"role": "tool", "tool_call_id": "b", "content": '{"error":"timeout"}'},
+        {"role": "tool", "tool_call_id": "a", "content": "legacy plain text"},
+        {"role": "tool", "tool_call_id": "unknown", "content": "orphan result"},
+    ]
+    ui = BrowserUI(SimpleNamespace(session=SimpleNamespace(messages=messages)))
+    ui.restore()
+    assert ui.rows[0]["text"] == "0"
+    assert ui.rows[180]["text"] == long_message
+    first, second, missing, orphan = ui.rows[-4:]
+    assert first["result"] == "legacy plain text"
+    assert second["arguments"] == "b" and second["status"] == "Failed"
+    assert missing["status"] == "No saved result"
+    assert orphan["result"] == "orphan result"

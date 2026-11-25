@@ -54,6 +54,7 @@
               ><button class="subtle" id="new" disabled>New chat</button>
             </div>
           </div>
+          <button id="earlier" class="subtle" hidden>Load earlier messages</button>
           <div
             id="feed"
             tabindex="0"
@@ -78,7 +79,7 @@
                     <option value="swarm">Swarm</option></select
                   ><span>Shift+Enter for a new line</span>
                 </div>
-                <button id="send" disabled>Send <b>↗</b></button>
+                <button id="send" disabled>Send</button>
               </div>
             </form>
           </section>
@@ -115,5 +116,9 @@
         <p id="alert" role="alert"></p>
       </main>
     </div>
+    <dialog id="archive" aria-labelledby="archiveTitle">
+      <div class="sessionBar"><h2 id="archiveTitle">Chat history</h2><button id="closeArchive" class="subtle">Close</button></div>
+      <div id="archives"></div>
+    </dialog>
   </body>
 </html>
