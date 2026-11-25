@@ -92,7 +92,7 @@ The test suite covers configuration behavior plus deterministic workspace, test-
 
 ## Engineering skills
 
-The agent can discover 476 local skills with `skill_catalog` and run them with `skill_run` in individual sessions and swarm workers. The catalog includes 63 document operations and reports, 359 Python checks powered by Ruff, 48 ANSI SQL checks powered by SQLFluff, and six combined reviews. Each analyzer check selects one named rule. A combined review runs its selected rules together in one process.
+The agent can discover 499 skills with `skill_catalog` and run them with `skill_run` in individual sessions and swarm workers. The catalog includes 63 document operations and reports, 359 Python checks powered by Ruff, 48 ANSI SQL checks powered by SQLFluff, six combined reviews, and 23 browser, document and project workflows. Each analyzer check selects one named rule. A combined review runs its selected rules together in one process.
 
 Discovery supports group, keyword, or rule-code searches. For example, `{"query":"F821"}` finds the undefined-name check. Results include a total and a continuation offset. The default page holds 20 entries. The model receives two tool schemas regardless of catalog size.
 
@@ -106,6 +106,18 @@ Discovery supports group, keyword, or rule-code searches. For example, `{"query"
 | `review_sql_quality` | Inspect this ANSI SQL query for ambiguous references, join issues and layout problems. |
 
 Analyzer results include a status, total diagnostic count, and the first 50 findings with rule IDs and source positions. Source parsing errors, timeouts and unavailable analyzers are reported separately. The checks use fixed rule settings and a 15-second process timeout. SQL analysis reads raw text using the ANSI dialect. Python checks target Python 3.12.
+
+### Browser, document and project workflows
+
+Search `skill_catalog` with group `web`, `document` or `project` for the available names and arguments. Supply those arguments in `options` when calling `skill_run`.
+
+| Group | Example skill call | What it returns |
+| --- | --- | --- |
+| Web | `{"skill":"web_visit","options":{"url":"https://example.org"}}` | Page title, URL, status, headings and main text. Follow links, extract tables, or interact with named controls in the same tab. |
+| Document | `{"skill":"document_append_section","options":{"path":"minutes.docx","heading":"Actions","text":"Review invoices","output":"revised.docx"}}` | A new Word file. Other workflows create Word files, replace plain paragraph text, read tables, export Markdown, and extract selectable PDF text. |
+| Project | `{"skill":"project_api_diff","options":{"before":"old.py","after":"new.py"}}` | Added, removed and changed public Python declarations. Git workflows inspect recent changes, project inventory and likely related tests. |
+
+Browser actions use the active tab or an explicit `tab_id`. A button click can submit a form. Document output paths must be new and inside the project workspace. Install the browser for the integration suite with `python -m playwright install chromium --only-shell`.
 
 The original document operations and reports cover these formats.
 

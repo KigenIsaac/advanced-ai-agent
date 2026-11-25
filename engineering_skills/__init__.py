@@ -5,7 +5,7 @@ import json
 import tokenize
 from xml.etree.ElementTree import ParseError
 
-from . import analyzers, formats, operations
+from . import analyzers, formats, operations, workflows
 from collections import Counter
 
 MAX_INPUT = 32_768
@@ -27,6 +27,7 @@ SKILLS = {
 
 DESCRIPTIONS = {name: tool.__doc__ for name, (_, tool) in SKILLS.items()}
 DESCRIPTIONS.update(analyzers.describe())
+DESCRIPTIONS.update(workflows.DESCRIPTIONS)
 GROUP_COUNTS = dict(Counter(name.split("_", 1)[0] for name in DESCRIPTIONS))
 
 
@@ -41,8 +42,8 @@ SCHEMAS = [
             {"group": {"type": "string", "enum": list(GROUP_COUNTS)}, "query": {"type": "string"},
              "offset": {"type": "integer", "minimum": 0},
              "limit": {"type": "integer", "minimum": 1, "maximum": 50}}, []),
-    _schema("skill_run", "Run one catalog skill. Supply exactly one of text or path. A workspace-relative path reads UTF-8 locally and preserves line endings.",
-            {"skill": {"type": "string"}, "text": {"type": "string", "maxLength": MAX_INPUT}, "path": {"type": "string"}}, ["skill"]),
+    _schema("skill_run", "Run one catalog skill. For web, document and project skills, pass the options listed by skill_catalog. Other skills take exactly one of text or path. A workspace-relative path reads UTF-8 locally and preserves line endings.",
+            {"skill": {"type": "string"}, "text": {"type": "string", "maxLength": MAX_INPUT}, "path": {"type": "string"}, "options": {"type":"object"}}, ["skill"]),
 ]
 
 
@@ -71,6 +72,8 @@ def catalog(group=None, query="", offset=0, limit=20):
 def run(skill, text):
     if not isinstance(skill, str) or skill not in DESCRIPTIONS:
         return {"error": "unknown_skill"}
+    if skill in workflows.HANDLERS:
+        return {"error": "session_required"}
     if not isinstance(text, str) or len(text) > MAX_INPUT:
         return {"error": "invalid_input", "message": f"provide text up to {MAX_INPUT} characters"}
     try:
