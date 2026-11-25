@@ -107,7 +107,7 @@ The test suite covers configuration behavior plus deterministic workspace, test-
 
 ## Engineering skills
 
-The agent can discover 548 skills with `skill_catalog` and run them with `skill_run` in individual sessions and swarm workers. The catalog includes 63 document operations and reports, 359 Python checks powered by Ruff, 48 ANSI SQL checks powered by SQLFluff, six combined reviews, 23 browser, document and repository workflows, and 49 system engineering skills. Each analyzer check selects one named rule. A combined review runs its selected rules together in one process.
+The agent can discover 810 skills with `skill_catalog` and run them with `skill_run` in individual sessions and swarm workers. The catalog includes 63 document operations and reports, 359 Python checks powered by Ruff, 48 ANSI SQL checks powered by SQLFluff, six combined reviews, 23 browser, document and repository workflows, 49 system design skills, and 262 engineering assurance skills. Each analyzer check selects one named rule. A combined review runs its selected rules together in one process.
 
 Discovery supports group, keyword, or rule-code searches. For example, `{"query":"F821"}` finds the undefined-name check. Results include a total and a continuation offset. The default page holds 20 entries. The model receives two tool schemas regardless of catalog size.
 
@@ -124,7 +124,7 @@ Analyzer results include a status, total diagnostic count, and the first 50 find
 
 ### Engineering a system
 
-The `project` group contains 55 skills across planning (9), relational storage (11), API contracts (9), state machines (11), capacity and reliability (9), and repository inspection (6). Open the [engineering skill guide](docs/system-engineering.md) for every skill name, input formats, units, and a runnable example. Discover available operations with `skill_catalog` and `{"group":"project"}`; follow `next_offset` for subsequent pages.
+The `project` group contains 317 skills. The 262 [engineering assurance skills](docs/engineering-assurance.md) evaluate scalability, accuracy, safety and reliability. The other 55 cover planning (9), relational storage (11), API contracts (9), state machines (11), capacity and reliability (9), and repository inspection (6). Open the [engineering skill guide](docs/system-engineering.md) for every skill name, input formats, units, and a runnable example. Discover available operations with `skill_catalog` and `{"group":"project"}`; follow `next_offset` for subsequent pages.
 
 ### Browser, document and project workflows
 

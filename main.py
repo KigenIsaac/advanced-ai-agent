@@ -2623,8 +2623,10 @@ class ToolRegistry:
                 return await engineering_skills.workflows.execute(self, skill, arguments.get("options", {}))
             output = None
             if name == "skill_run" and "output" in arguments:
-                if (not isinstance(skill, str) or skill not in engineering_skills.system.TOOLS
-                        or not isinstance(arguments["output"], str) or not arguments["output"]):
+                can_save = isinstance(skill, str) and (
+                    skill in engineering_skills.system.TOOLS or skill in engineering_skills.assurance.DESCRIPTIONS
+                )
+                if not can_save or not isinstance(arguments["output"], str) or not arguments["output"]:
                     return {"error": "invalid_arguments", "message": "output requires a system skill and new file path"}
                 if self.code is None or not self.is_enabled("workspace"):
                     return {"error": "workspace_unavailable"}

@@ -5,7 +5,7 @@ import json
 import tokenize
 from xml.etree.ElementTree import ParseError
 
-from . import analyzers, formats, operations, workflows, system
+from . import analyzers, formats, operations, workflows, system, assurance
 from collections import Counter
 
 MAX_INPUT = 32_768
@@ -29,6 +29,7 @@ DESCRIPTIONS = {name: tool.__doc__ for name, (_, tool) in SKILLS.items()}
 DESCRIPTIONS.update(analyzers.describe())
 DESCRIPTIONS.update(workflows.DESCRIPTIONS)
 DESCRIPTIONS.update(system.DESCRIPTIONS)
+DESCRIPTIONS.update(assurance.DESCRIPTIONS)
 GROUP_COUNTS = dict(Counter(name.split("_", 1)[0] for name in DESCRIPTIONS))
 
 
@@ -81,17 +82,19 @@ def run(skill, text):
     try:
         text.encode("utf-8")
         source = text if skill.startswith("text_") else text.removeprefix("\ufeff")
-        if skill in system.TOOLS:
-            parser, tool = system.TOOLS[skill]
-        elif skill not in SKILLS:
-            return analyzers.analyze(skill, source)
+        if skill in assurance.DESCRIPTIONS:
+            result = assurance.analyze(skill, source)
         else:
-            parser, tool = SKILLS[skill]
-        document = parser(source)
-        if parser in (formats.json_value, formats.manifest):
-            # Also enforce the nesting limit for formatting and metadata tools.
-            operations.json_depth(document)
-        result = tool(document)
+            if skill in system.TOOLS:
+                parser, tool = system.TOOLS[skill]
+            elif skill not in SKILLS:
+                return analyzers.analyze(skill, source)
+            else:
+                parser, tool = SKILLS[skill]
+            document = parser(source)
+            if parser in (formats.json_value, formats.manifest):
+                operations.json_depth(document)
+            result = tool(document)
         size = 0
         for chunk in json.JSONEncoder(ensure_ascii=False).iterencode(result):
             size += len(chunk)
