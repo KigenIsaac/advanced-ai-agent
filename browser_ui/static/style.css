@@ -550,3 +550,28 @@ dialog .sessionBar {margin:0 0 12px}
 #credentialNotice:empty {display:none}
 .largeMessages .entry .answer {font-size:1.16rem}
 @media(max-width:460px){aside {flex-wrap:wrap;gap:4px} nav {flex-wrap:wrap}}
+
+.entry.assistant {
+  width: fit-content;
+  max-width: min(100%, 84ch);
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 3px 14px 14px;
+  padding: 12px 16px;
+}
+.entry.tool, .entry.thinking {
+  width: fit-content;
+  max-width: min(100%, 72ch);
+  border-radius: 4px 10px 10px;
+}
+.entry.thinking {padding: 0; background: #f1eff8; border: 1px solid #dad5e7; color: #443f57}
+.entry summary {display: flex; align-items: center; gap: 6px; list-style: none}
+.entry summary::-webkit-details-marker {display: none}
+.entry summary:focus-visible {outline: 2px solid currentColor; outline-offset: 3px}
+.entry summary strong {margin: 0; min-width: 0}
+.stepIcon {display: inline-block; flex: none}
+details[open] > summary .stepIcon {transform: rotate(90deg)}
+.entry .preview {overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0}
+.entry details[open] .preview {display: none}
+.entry .stepText {margin-top: 6px}
+.entry .toolStatus {white-space: nowrap}

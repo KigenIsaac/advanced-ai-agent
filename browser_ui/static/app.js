@@ -124,20 +124,45 @@ function formatted(value) {
   }
   return JSON.stringify(value, null, 2);
 }
-function entry(row, expanded) {
+function updateStep(node, row) {
+  const summary = node.querySelector("summary");
+  if (row.kind === "thinking") {
+    summary.querySelector(".preview").textContent = row.text;
+    node.querySelector(".stepText").textContent = row.text;
+    return;
+  }
+  summary.querySelector("strong").textContent = row.label;
+  summary.querySelector(".toolStatus").textContent = row.status;
+  summary.querySelector("small").textContent = row.elapsed == null ? "" : row.elapsed.toFixed(2) + " s";
+  node.classList.toggle("failed", ["Failed", "Interrupted"].includes(row.status));
+  for (const key of ["arguments", "result"]) {
+    const section = node.querySelector("." + key);
+    section.hidden = row[key] === undefined;
+    section.querySelector("pre").textContent = formatted(row[key]) ?? "";
+  }
+}
+function entry(row) {
   const node = el("article", "", "entry " + row.kind);
   node.dataset.id = row.id;
-  if (row.kind === "tool") {
-    const details = document.createElement("details"), summary = document.createElement("summary");
-    details.open = expanded;
-    summary.append(el("strong", row.label), el("span", row.status, "toolStatus"));
-    if (row.elapsed != null) summary.append(el("small", row.elapsed.toFixed(2) + " s"));
-    if (row.status === "Failed") node.classList.add("failed");
+  if (row.kind === "tool" || row.kind === "thinking") {
+    const details = el("details", ""), summary = el("summary", "");
+    const icon = el("span", "▸", "stepIcon");
+    icon.setAttribute("aria-hidden", "true");
+    summary.append(icon);
     details.append(summary);
-    for (const [key, title] of [["arguments", "Arguments"], ["result", "Result"]]) {
-      if (row[key] !== undefined && row[key] !== "") details.append(el("h4", title), el("pre", formatted(row[key])));
+    if (row.kind === "tool") {
+      summary.append(el("strong", ""), el("span", "", "toolStatus"), el("small", ""));
+      for (const [key, title] of [["arguments", "Arguments"], ["result", "Result"]]) {
+        const section = el("section", "", key);
+        section.append(el("h4", title), el("pre", ""));
+        details.append(section);
+      }
+    } else {
+      summary.append(el("strong", "Thinking"), el("span", "", "preview"));
+      details.append(el("p", "", "stepText"));
     }
     node.append(details);
+    updateStep(node, row);
   } else {
     const labels = {user:"You", assistant:state.agent, console:"Console", error:"Error", notice:"Session", activity:"Activity"};
     node.append(el("small", row.label || labels[row.kind] || row.kind));
@@ -152,7 +177,12 @@ function drawRows(rows, prepend = false) {
   for (const row of prepend ? [...rows].reverse() : rows) {
     const key = JSON.stringify(row), old = rendered.get(row.id);
     if (old?.key === key) continue;
-    const node = entry(row, !!old?.node.querySelector("details")?.open);
+    if (old && (row.kind === "thinking" || row.kind === "tool")) {
+      updateStep(old.node, row);
+      old.key = key;
+      continue;
+    }
+    const node = entry(row);
     if (old) old.node.replaceWith(node);
     else if (prepend) feed.prepend(node);
     else feed.append(node);

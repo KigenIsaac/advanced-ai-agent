@@ -63,7 +63,9 @@ class BrowserUI(TerminalUI):
             file=ConsoleSink(self), width=90, color_system=None, highlight=False
         )
         self.rows = []
-        self.active_tool = None
+        self.tool_rows = {}
+        self.phase = None
+        self.round_start = 0
         self.revision = 0
         self.seq = 0
         self.question = None
@@ -127,11 +129,19 @@ class BrowserUI(TerminalUI):
 
     def restore(self):
         self.rows.clear()
-        self.active_tool = self.live = None
+        self.tool_rows.clear()
+        self.phase = self.live = None
         calls = {}
         for msg in self.app.session.messages if self.app.session else []:
             role = msg.get("role")
-            if (
+            steps = msg.get("_display_steps") if role == "assistant" else None
+            if isinstance(steps, list) and steps and all(
+                isinstance(step, dict) and step.get("kind") in {"thinking", "assistant"}
+                and isinstance(step.get("text"), str) for step in steps
+            ):
+                for step in steps:
+                    self.add(step["kind"], step["text"])
+            elif (
                 role in {"user", "assistant"}
                 and isinstance(msg.get("content"), str)
                 and msg["content"]
@@ -186,28 +196,69 @@ class BrowserUI(TerminalUI):
     def content_end(self):
         self.live = None
 
+    def begin_round(self, key_label=""):
+        self.round_start = len(self.rows)
+        self.phase = None
+
+    def round_display_steps(self):
+        rows = self.rows[self.round_start:]
+        if any(row["kind"] == "thinking" for row in rows):
+            return [{"kind": r["kind"], "text": r["text"]} for r in rows
+                    if r["kind"] in {"thinking", "assistant"}]
+        return []
+
     def reasoning_start(self):
-        self.add("activity", "Thinking")
+        previous = self.rows[-1] if self.rows else {}
+        description = (f"Reviewing the result from {previous['label']}."
+                       if previous.get("kind") == "tool" else "Processing your request.")
+        self.phase = self.add("thinking", description)
+        self.has_summary = False
 
     def reasoning_delta(self, text):
+        # Only display summaries explicitly supplied for presentation.
         pass
 
+    def summary_delta(self, text):
+        if self.phase is not None and text:
+            self.phase["text"] = (self.phase["text"] if self.has_summary else "") + text
+            self.has_summary = True
+            self.dirty()
+
     def reasoning_end(self):
-        pass
+        self.phase = None
 
     def tool_row(self, name, arguments):
         row = self.add("tool", "", name)
-        row.update(arguments=arguments, status="Running")
+        row.update(arguments=arguments, status="Requested")
         return row
 
-    def tool_call(self, name, arguments):
-        self.active_tool = self.tool_row(name, arguments)
+    def tool_requested(self, call_id, name, arguments):
+        row = self.tool_rows.get(call_id)
+        if row is None:
+            self.tool_rows[call_id] = self.tool_row(name, arguments)
+        else:
+            row.update(label=name, arguments=arguments)
+            self.dirty()
 
-    def tool_result(self, name, result, elapsed, verbose=False, key_label=""):
-        row = self.active_tool or self.tool_row(name, "")
+    def tools_requested(self, calls):
+        for call in calls:
+            args = call["raw"]["arguments"] if call["error"] else call["args"]
+            self.tool_requested(call["id"], call["name"], args)
+
+    def tool_started(self, call_id):
+        self.tool_rows[call_id]["status"] = "Running"
+        self.dirty()
+
+    def tool_finished(self, call_id, result, elapsed):
+        row = self.tool_rows.pop(call_id)
         row.update(result=Agent._serialize_tool_result(result), elapsed=round(elapsed, 2),
                    status="Failed" if is_error_result(result) else "Completed")
-        self.active_tool = None
+        self.dirty()
+
+    def finish_tool_batch(self):
+        for row in self.tool_rows.values():
+            row.update(status="Interrupted")
+        self.tool_rows.clear()
         self.dirty()
 
     def display_rows(self, rows):
