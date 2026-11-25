@@ -70,6 +70,21 @@ On Windows, `py main.py` can be used instead.
 
 The CLI lets you select a provider and open or create a project workspace. Use `--help` to inspect available runtime options.
 
+### Browser frontend
+
+```bash
+python -m pip install -r requirements.txt
+python main.py --frontend
+```
+
+![Skill library in the local browser workspace](docs/browser-workspace.png)
+
+The local server opens a private URL in your default browser. Use the same provider credentials, project directory, and routing flags as the terminal. To open a named project directly, run `python main.py --frontend --project my-project`. To print the URL without launching a browser, add `--no-open-browser`. The default port is assigned automatically; `--frontend-port 8765` selects a fixed port.
+
+Use **Session** to select or create a project, send a task, watch streamed replies and tool activity, or start a swarm turn. **Skill library** searches the installed catalog, and **Tools** toggles capabilities on the current runtime. Slash commands, including `/history`, `/resume`, and `/export`, use the same handlers and saved files as the terminal. Reloading the tab reconnects to the current session.
+
+Each server process serves one agent session on IPv4 loopback. Keep its tokenized URL private. `/exit` ends the agent session and leaves the transcript visible; Ctrl+C in the launching terminal stops the server.
+
 ### Run tests
 
 Install development dependencies:

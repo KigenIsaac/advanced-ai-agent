@@ -3221,6 +3221,9 @@ class TerminalUI:
         )
         self.console.print()
 
+    def conversation_changed(self, session, command: str) -> None:
+        """Optional hook for UIs that display a persistent conversation."""
+
     def begin_round(self, key_label: str = "—") -> None:
         self._header_printed = False
         self._header_key = key_label
@@ -5508,6 +5511,8 @@ class App:
             if line.startswith("/"):
                 try:
                     should_exit = await self._handle_command(line)
+                    if line.split(maxsplit=1)[0].lower() in {"/new", "/resume", "/load", "/clear", "/retry"}:
+                        self.ui.conversation_changed(self.session, line.split(maxsplit=1)[0].lower())
                 except KeyboardInterrupt:
                     self.ui.console.print()
                     self.ui.warning("Command interrupted.")
@@ -5933,6 +5938,9 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         prog="agnes-agent",
         description="Agnes 3.0 Flash terminal agent — projects, chat, swarm.",
     )
+    p.add_argument("--frontend", action="store_true", help="Open the local browser workspace")
+    p.add_argument("--frontend-port", type=int, default=0, help="Loopback browser port (default: automatically assigned)")
+    p.add_argument("--no-open-browser", action="store_true", help="Print the local frontend URL without opening it")
     p.add_argument(
         "--config",
         default=os.environ.get("AGNES_CONFIG"),
@@ -6328,6 +6336,9 @@ async def async_main(args: argparse.Namespace) -> int:
     chat_store = ChatStore(home / "chats")
 
     app = App(args, manager, chat_store, home)
+    if args.frontend:
+        from browser_ui.server import serve
+        return await serve(app, args.frontend_port, not args.no_open_browser)
     return await app.start()
 
 
@@ -6342,4 +6353,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    sys.modules.setdefault("main", sys.modules[__name__])
     sys.exit(main())
