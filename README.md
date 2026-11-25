@@ -633,3 +633,67 @@ Software Developer focused on:
 ## ⭐ Status
 
 This project is actively evolving as an exploration of autonomous software-engineering systems.
+
+
+## Lower-cost Chinese model APIs (local orchestration)
+
+The coding agent runs on your own computer. **DeepSeek, Qwen and Kimi inference is remote** when you use their APIs; prompts, selected code and tool context can leave your device. Ollama remains available for fully local inference.
+
+```bash
+# DeepSeek (current API model)
+export AGNES_PROVIDER=deepseek
+export DEEPSEEK_API_KEY=your_secret_key
+python main.py --max-rounds 20
+
+# Qwen via Alibaba Cloud Model Studio
+export AGNES_PROVIDER=qwen
+export DASHSCOPE_API_KEY=your_secret_key
+export QWEN_BASE_URL=https://YOUR_WORKSPACE_ID.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1
+python main.py --max-rounds 20
+
+# Kimi via Moonshot AI
+export AGNES_PROVIDER=kimi
+export MOONSHOT_API_KEY=your_secret_key
+python main.py --max-rounds 20
+```
+
+On Windows PowerShell, use `$env:AGNES_PROVIDER="deepseek"` syntax instead of `export`. Alternatively configure the matching variables in a **local, uncommitted** `.env` file.
+
+- The default Qwen base URL in `providers.json` is the older international compatibility endpoint. **Prefer `QWEN_BASE_URL` set to your actual regional workspace endpoint**, as documented by Alibaba Cloud; API keys must match that region.
+- `--provider` selects the model vendor. `--model` and `--base-url` explicitly override its defaults.
+- Credentials resolve in this order: explicit `--api-key`/`--api-keys`, selected provider key (`DEEPSEEK_API_KEY`, `DASHSCOPE_API_KEY`, or `MOONSHOT_API_KEY`), then generic `AGNES_API_KEY`. Keys from different vendors are never automatically mixed.
+- Use `--max-rounds 20` or `AGNES_MAX_ROUNDS=20` to reduce runaway agent loops and API spend. This is **not** a monetary spending limit; configure provider account budgets separately.
+- For `--provider ollama` or `local`, a keyless endpoint is accepted only on loopback (`localhost`, `127.0.0.1`, or `::1`).
+- API model availability and prices change; verify models with the provider before spending. Models listed here are starter defaults, not a guarantee of superior coding benchmark scores.
+
+Official references: [DeepSeek API pricing and models](https://api-docs.deepseek.com/quick_start/pricing/), [Alibaba Model Studio OpenAI compatibility](https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-chat-completions), [Kimi provider API](https://www.kimi.com/code/docs/en/kimi-code-cli/configuration/providers).
+
+
+## Smart routing and daily API budget (optional)
+
+1. Copy `routing.example.json` to a trusted location outside the project being edited.
+2. Set each route's actual provider model, endpoint and current input/output rates. Example rates are placeholders, not live pricing or measured model rankings.
+3. Set the provider-specific keys in your environment. Use `--provider deepseek` (or another configured primary provider) and explicitly enable routing:
+
+```bash
+python main.py --provider deepseek --routing-config /absolute/path/routing.json
+```
+
+Alternatively put the config in your agent home directory (default `~/.agnes/routing.json`). Routing configuration is not loaded implicitly from the repository being edited. Only use trusted configuration and API endpoints. Prompts and selected source code are sent to the chosen remote provider. Do not use cloud routes for secrets or confidential code without authorization.
+
+The planner uses the planning route, worker selection uses the actual work brief, and the summarizer uses the review route. Ordinary turns are classified by task keywords. Missing specialized routes fall back to the configured general route, if available. Selection is heuristic, not proof of superior model quality. `/routes` lists routes, `/budget` shows the persistent UTC-day estimate. The ledger includes serialized messages and tool schemas in reservations, retains reservations when usage is missing, and disables automatic paid retries when a cap is configured. Ollama/local loopback routes do not incur API token charges in the ledger. This is not a provider billing guarantee; configure account-level limits separately. The example budget is USD 2 per day, not an imposed default.
+
+### Reproducible coding smoke benchmark
+
+Use a disposable VM or similarly isolated environment with only the required API credentials. The runner executes agents and their resulting code; a temporary directory is not a hardened sandbox. The following example is for a POSIX shell; adjust the paths and JSON quoting for Windows.
+
+```bash
+python benchmark_agents.py \
+  --agent local-agent '["/absolute/path/.venv/bin/python","/absolute/path/main.py","--provider","deepseek","--routing-config","/absolute/path/routing.json","--home","{home}","--no-web","--max-rounds","20","--prompt","{prompt}"]' \
+  --agent claude '["claude","--print","{prompt}"]' \
+  --out benchmark-results --repeat 3 --timeout 600
+```
+
+The reference CLI must be installed and authenticated, and configured to permit editing the disposable benchmark workspace without interactive prompts. Do not grant it access to unrelated files. Each case gets an independent workspace and agent home; the evaluator checks actual behavior rather than trusting a completion claim. This runs paid requests if configured; the agent's temporary home has an independent ledger per case, so the example daily limit is **per case**, not a shared benchmark-wide cap. Provider account limits remain important.
+
+The three initial tasks cover decimal arithmetic, stable deduplication and path validation. Output includes agent/check logs, JSON pass/fail results, runtime, and estimated ledger cost if present; reference CLI costs are unknown unless independently measured. This is a small smoke benchmark, not SWE-bench or proof of superiority over Claude Code. Expand to representative multi-file tasks before drawing conclusions. No paid benchmark is run automatically in CI.

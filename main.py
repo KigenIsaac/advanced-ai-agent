@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from dataclasses import replace
 import ast
 import json
 import os
@@ -28,6 +29,7 @@ from rich.box import ROUNDED
 import engineering_skills
 from llm_providers.base import ProviderAdapter
 from llm_providers import get_provider_adapter
+from smart_routing import ModelRoute, BudgetLedger, RoutedClient
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -124,6 +126,8 @@ MODEL_PROVIDERS = {
     "local": "Local model API",
     "openrouter": "OpenRouter",
     "deepseek": "DeepSeek",
+    "qwen": "Alibaba Cloud Qwen",
+    "kimi": "Moonshot AI Kimi",
     "groq": "Groq",
     "mistral": "Mistral",
     "together": "Together AI",
@@ -141,7 +145,9 @@ PROVIDER_DEFAULT_MODELS = {
     "gemini": "gemini-2.0-flash",
     "local": "llama3.1",
     "openrouter": "openai/gpt-4o-mini",
-    "deepseek": "deepseek-chat",
+    "deepseek": "deepseek-flash",
+    "qwen": "qwen3.7-plus",
+    "kimi": "kimi-k2.5",
     "groq": "llama-3.1-70b-versatile",
     "mistral": "mistral-small-latest",
     "together": "meta-llama/Llama-3.1-70B-Instruct-Turbo",
@@ -160,6 +166,8 @@ PROVIDER_DEFAULT_BASE_URLS = {
     "local": "http://localhost:11434/v1",
     "openrouter": "https://openrouter.ai/api/v1",
     "deepseek": "https://api.deepseek.com",
+    "qwen": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+    "kimi": "https://api.moonshot.ai/v1",
     "groq": "https://api.groq.com/openai/v1",
     "mistral": "https://api.mistral.ai/v1",
     "together": "https://api.together.xyz/v1",
@@ -168,6 +176,20 @@ PROVIDER_DEFAULT_BASE_URLS = {
     "perplexity": "https://api.perplexity.ai",
     "fireworks": "https://api.fireworks.ai/inference/v1",
     "xai": "https://api.x.ai/v1",
+}
+
+# Provider-specific environment variables take priority over the generic Agnes
+# defaults. Qwen users should set QWEN_BASE_URL to their regional, workspace-
+# specific Alibaba Model Studio endpoint (the built-in value is a legacy URL).
+PROVIDER_API_KEY_ENVS = {
+    "deepseek": "DEEPSEEK_API_KEY",
+    "qwen": "DASHSCOPE_API_KEY",
+    "kimi": "MOONSHOT_API_KEY",
+}
+PROVIDER_BASE_URL_ENVS = {
+    "deepseek": "DEEPSEEK_BASE_URL",
+    "qwen": "QWEN_BASE_URL",
+    "kimi": "MOONSHOT_BASE_URL",
 }
 
 
@@ -3824,7 +3846,9 @@ class Agent:
             + self.completion_tokens / 1_000_000 * PRICE_OUTPUT
         )
 
-    async def send(self, user_text: str) -> None:
+    async def send(self, user_text: str, *, task_hint: Optional[str] = None, routing_context: Optional[str] = None) -> None:
+        if hasattr(self.client, "select_task"):
+            self.client.select_task(routing_context or user_text, task_hint=task_hint)
         self._last_user_message = user_text
         self.messages.append({
             "role": "user",
@@ -4150,7 +4174,7 @@ class Planner(Agent):
 
     async def plan(self, task: str) -> TodoList:
         self.ui.planner_start()
-        await self.send(task)
+        await self.send(task, task_hint="planning")
 
         data = self._extract_plan()
         todos = self._parse_todos(data)
@@ -4168,7 +4192,7 @@ class Planner(Agent):
                 f"Expand it to at least {TARGET_TODOS} top-level todos, each "
                 f"with at least {TARGET_SUBTASKS} substantive subtasks. "
                 f"Keep every todo narrow and verifiable. Respond with ONLY "
-                f"valid JSON in the same schema."
+                f"valid JSON in the same schema.", task_hint="planning"
             )
             try:
                 data = self._extract_plan()
@@ -4390,7 +4414,8 @@ class Swarm:
                 started = time.time()
                 try:
                     await worker.send(
-                        f"Execute todo {todo.id}. Begin now."
+                        f"Execute todo {todo.id}. Begin now.",
+                        routing_context=f"{todo.title}\n{todo.description}\n{todo.worker_prompt}"
                     )
                     final = worker.final_message()
                     todo.result = sanitize_text(final)
@@ -4460,7 +4485,7 @@ class Swarm:
         )
 
         try:
-            await summarizer.send(user_text)
+            await summarizer.send(user_text, task_hint="review")
             for msg in reversed(summarizer.messages):
                 if msg.get("role") == "assistant" and msg.get("content"):
                     plan.report = msg["content"]
@@ -5124,19 +5149,25 @@ class App:
     async def start(self) -> int:
         await self._ensure_provider_choice()
 
-        keys = _parse_key_list(
-            single=os.environ.get("AGNES_API_KEY"),
+        settings = self.settings
+        keys = resolve_provider_api_keys(
+            settings["provider"],
             many=self.args.api_keys,
             repeated=self.args.api_key,
         )
+        if not keys and settings["provider"] in {"local", "ollama"}:
+            # Only permit credential-free local inference on loopback, not on
+            # remote OpenAI-compatible endpoints.
+            if httpx.URL(settings["base_url"]).host in {"localhost", "127.0.0.1", "::1"}:
+                keys = ["local-no-api-key"]
         if not keys:
             self.ui.error(
-                "No API key. Set AGNES_API_KEY or AGNES_API_KEYS, put them in "
-                ".env, or pass --api-key (repeatable) / --api-keys k1,k2,k3."
+                "No API key for the selected provider. Set its provider-specific "
+                "environment variable (e.g. DEEPSEEK_API_KEY, DASHSCOPE_API_KEY, "
+                "MOONSHOT_API_KEY), AGNES_API_KEY, or pass --api-key."
             )
             return 2
 
-        settings = self.settings
         tier = ACCESS_TIERS.get(settings["tier"], ACCESS_TIERS[DEFAULT_TIER])
         rpm_per_key = settings["rpm"] or tier["rpm"]
 
@@ -5167,6 +5198,11 @@ class App:
         self.client = AgnesClient(
             self.config, self.pool, on_retry=self.ui.retry_notice
         )
+        try:
+            self._enable_smart_routing()
+        except Exception:
+            await self.client.close()
+            raise
 
         if _HAS_WEB and not self.args.no_web:
             try:
@@ -5192,7 +5228,81 @@ class App:
             await self._close_all()
         return 0
 
+    def _enable_smart_routing(self) -> None:
+        """Opt-in route config; never send another provider's key to a new API."""
+        config_name = getattr(self.args, "routing_config", None)
+        path = Path(config_name).expanduser() if config_name else self.home / "routing.json"
+        if not path.exists():
+            if config_name:
+                raise FileNotFoundError(f"Routing configuration not found: {path}")
+            return
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict) or not raw.get("enabled", False):
+            return
+        raw_routes = raw.get("routes", [])
+        if not isinstance(raw_routes, list):
+            raise ValueError("routing.json routes must be a list")
+        usable: list[ModelRoute] = []
+        api_keys: dict[str, list[str]] = {}
+        for row in raw_routes:
+            route = ModelRoute.from_dict(row)
+            if route.provider not in MODEL_PROVIDERS:
+                raise ValueError(f"Unknown model route provider: {route.provider}")
+            if not route.name or route.name in api_keys:
+                raise ValueError("Routing names must be unique non-empty strings")
+            if route.provider in {"local", "ollama"}:
+                if httpx.URL(route.base_url).host not in {"localhost", "127.0.0.1", "::1"}:
+                    raise ValueError("Local model routes must use a loopback base URL")
+                keys = ["local-no-api-key"]
+            elif route.provider == self.config.provider:
+                keys = self.config.api_keys
+            else:
+                # Unlike the main provider, secondary routes NEVER fall back
+                # to AGNES_API_KEY, which might belong to another vendor.
+                env_name = PROVIDER_API_KEY_ENVS.get(route.provider)
+                keys = _parse_key_list(os.environ.get(env_name) if env_name else None, None, None)
+            if not keys:
+                self.ui.warning(f"Skipping route {route.name}: no provider-specific API key")
+                continue
+            env_name = PROVIDER_BASE_URL_ENVS.get(route.provider)
+            if env_name and os.environ.get(env_name):
+                route = replace(route, base_url=os.environ[env_name])
+            api_keys[route.name] = keys
+            usable.append(route)
+        if not usable:
+            raise ValueError("No configured smart routes have usable API credentials")
+
+        daily_limit = float(raw.get("daily_budget_usd") or 0)
+        if daily_limit != 0 and not (0 < daily_limit <= 1_000_000):
+            raise ValueError("daily_budget_usd must be zero (disabled) or a positive finite limit")
+        ledger = BudgetLedger(self.home / "api_budget.sqlite3", daily_limit) if daily_limit > 0 else None
+
+        def client_for(route: ModelRoute) -> AgnesClient:
+            keys = api_keys[route.name]
+            cfg = replace(
+                self.config, api_keys=keys, provider=route.provider,
+                model=route.model, base_url=route.base_url,
+                # A retry may be billed again; do not retry automatically with a cap.
+                max_retries=0 if ledger is not None else self.config.max_retries,
+            )
+            tier = ACCESS_TIERS.get(cfg.tier, ACCESS_TIERS[DEFAULT_TIER])
+            pool = KeyPool(keys, cfg.rpm_override or tier["rpm"])
+            return AgnesClient(cfg, pool, on_retry=self.ui.retry_notice)
+
+        self.client = RoutedClient(
+            self.client, usable, client_for, ledger=ledger, announce=self.ui.info,
+        )
+        self.ui.info(
+            f"Smart model routing enabled: {len(usable)} routes"
+            + (f", estimated daily budget ${daily_limit:.2f} (UTC)" if ledger else ", no budget guard")
+        )
+
     async def _run(self) -> None:
+        if getattr(self.args, "prompt", None) is not None:
+            # Non-interactive, one task, current directory workspace.
+            await self._open(project=None)
+            await self.session.send(self.args.prompt)
+            return
         explicit = self.args.project
         if explicit:
             project = self.manager.find(explicit)
@@ -5261,7 +5371,7 @@ class App:
             loaded = project.load_current_conversation()
         else:
             loaded = self.chat_store.load_current()
-        if loaded:
+        if loaded and getattr(self.args, "prompt", None) is None:
             self.session.messages = _normalize_messages_for_api(loaded)
             self.ui.info(f"Resumed conversation ({len(loaded)} messages).")
 
@@ -5635,15 +5745,31 @@ class App:
             )
             return False
 
-        if cmd == "/tokens":
-            total = self.session.prompt_tokens + self.session.completion_tokens
-            cost = self.session.cost_estimate()
-            self.ui.info(
-                f"Prompt: {self.session.prompt_tokens}  ·  "
-                f"Completion: {self.session.completion_tokens}  ·  "
-                f"Total: {total}  ·  "
-                f"Est. cost: ${cost:.4f}"
-            )
+        if cmd in ("/tokens", "/budget"):
+            if isinstance(self.client, RoutedClient) and self.client.ledger is not None:
+                summary = self.client.ledger.summary()
+                self.ui.info(
+                    f"UTC {summary['utc_date']} · "
+                    f"Est. billed: ${summary['charged_estimate_usd']:.4f} · "
+                    f"Pending: ${summary['pending_reserved_usd']:.4f} · "
+                    f"Daily limit: ${summary['budget_usd']:.2f} · "
+                    f"Calls: {summary['calls']}"
+                )
+            else:
+                total = self.session.prompt_tokens + self.session.completion_tokens
+                self.ui.info(
+                    f"Prompt: {self.session.prompt_tokens} · "
+                    f"Completion: {self.session.completion_tokens} · "
+                    f"Total: {total} · No enforced estimated daily USD limit. "
+                    "Set daily_budget_usd in routing.json to enable one."
+                )
+            return False
+        if cmd == "/routes":
+            if isinstance(self.client, RoutedClient):
+                for route in self.client.routes:
+                    self.ui.info(f"{route.name}: {route.provider}/{route.model} → {', '.join(route.tasks)}")
+            else:
+                self.ui.info("Smart model routing is off (use --routing-config or ~/.agnes/routing.json).")
             return False
 
         if cmd == "/limits":
@@ -5774,6 +5900,27 @@ def _parse_key_list(
     return out
 
 
+def resolve_provider_api_keys(
+    provider: str,
+    *,
+    many: Optional[str] = None,
+    repeated: Optional[list[str]] = None,
+) -> list[str]:
+    """Prefer explicit CLI keys, then this provider's key, then the fallback.
+
+    Never combine keys from unrelated providers in one rotating pool.
+    """
+    if many or repeated:
+        return _parse_key_list(single=None, many=many, repeated=repeated)
+    env_name = PROVIDER_API_KEY_ENVS.get(provider, "")
+    selected = os.environ.get(env_name) if env_name else None
+    return _parse_key_list(
+        single=selected or os.environ.get("AGNES_API_KEY"),
+        many=None,
+        repeated=None,
+    )
+
+
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="agnes-agent",
@@ -5806,6 +5953,16 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         help="Model provider backend to target.",
     )
     p.add_argument(
+        "--routing-config",
+        default=os.environ.get("AGNES_ROUTING_CONFIG"),
+        help="Optional JSON file for task routing and estimated USD spending limits.",
+    )
+    p.add_argument(
+        "--prompt",
+        default=None,
+        help="Execute one prompt in the current directory and exit (benchmark/CI use).",
+    )
+    p.add_argument(
         "--project",
         default=os.environ.get("AGNES_PROJECT"),
         help="Open a specific project by slug. Skips the menu.",
@@ -5819,17 +5976,17 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         "--api-key",
         action="append",
         default=None,
-        help="Agnes API key. Repeat to provide multiple keys.",
+        help="Selected provider API key. Repeat to provide multiple keys.",
     )
     p.add_argument(
         "--api-keys",
         default=os.environ.get("AGNES_API_KEYS"),
-        help="Comma-separated list of Agnes API keys.",
+        help="Comma-separated API keys for the selected provider.",
     )
     p.add_argument(
         "--base-url",
-        default=os.environ.get("AGNES_BASE_URL", DEFAULT_BASE_URL),
-        help=f"Agnes API base URL (default: {DEFAULT_BASE_URL}).",
+        default=None,
+        help="Override provider API base URL (otherwise use environment or provider defaults).",
     )
     p.add_argument(
         "--model",
@@ -6062,13 +6219,21 @@ def resolve_runtime_settings(args: argparse.Namespace) -> dict[str, Any]:
         return value
 
     provider_cfg = provider_defaults.get(provider_value, {}) if isinstance(provider_defaults, dict) else {}
-    default_base_url = provider_cfg.get("base_url") or PROVIDER_DEFAULT_BASE_URLS.get(provider_value, DEFAULT_BASE_URL)
+    provider_env_name = PROVIDER_BASE_URL_ENVS.get(provider_value, "")
+    provider_env_url = os.environ.get(provider_env_name) if provider_env_name else None
+    default_base_url = (
+        provider_env_url
+        or os.environ.get("AGNES_BASE_URL")
+        or profile.get("base_url")
+        or provider_cfg.get("base_url")
+        or PROVIDER_DEFAULT_BASE_URLS.get(provider_value, DEFAULT_BASE_URL)
+    )
     default_model = provider_cfg.get("model") or PROVIDER_DEFAULT_MODELS.get(provider_value, DEFAULT_MODEL)
     configured = {
         "provider": provider_value,
         "agent_name": pick("agent_name", profile.get("agent_name", DEFAULT_AGENT_NAME), cast=str),
         "agent_tagline": pick("agent_tagline", profile.get("agent_tagline", DEFAULT_AGENT_TAGLINE), cast=str),
-        "base_url": pick("base_url", profile.get("base_url", default_base_url), cast=str),
+        "base_url": str(getattr(args, "base_url", None) or default_base_url),
         "model": pick("model", profile.get("model", default_model), cast=str),
         "temperature": pick("temperature", profile.get("temperature", 0.3), cast=float),
         "max_tokens": pick("max_tokens", profile.get("max_tokens", DEFAULT_MAX_TOKENS), cast=int),
