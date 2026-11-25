@@ -25,6 +25,8 @@ from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.styles import Style
 from rich.box import ROUNDED
+import engineering_skills
+from llm_providers.base import ProviderAdapter
 from llm_providers import get_provider_adapter
 from rich.console import Console
 from rich.markdown import Markdown
@@ -45,6 +47,7 @@ except ImportError:
     _HAS_WEB = False
 
 try:
+    from codeagent.workspace import WorkspaceError
     from codeagent import CodeAgent
     from codeagent.tools import TOOLS as _CODE_TOOLS
     _HAS_CODE = True
@@ -294,26 +297,60 @@ def _escape_bad_backslashes(text: str) -> str:
     return "".join(out)
 
 
+def _validate_tool_object(value: dict) -> None:
+    pending = [(value, 0)]
+    while pending:
+        node, depth = pending.pop()
+        if depth > 64:
+            raise ValueError("tool arguments exceed 64 levels of nesting")
+        if isinstance(node, (list, dict)):
+            children = node.values() if isinstance(node, dict) else node
+            pending.extend((child, depth + 1) for child in children)
+    json.dumps(value, allow_nan=False)
+
+
 def _parse_tool_arguments(
-    name: str, raw: str
+    name: str, raw: Any
 ) -> tuple[dict, Optional[str]]:
-    raw = (raw or "").strip()
+    if raw is None:
+        return {}, None
+    if isinstance(raw, dict):
+        try:
+            if any(not isinstance(key, str) for key in raw):
+                raise ValueError("argument names must be strings")
+            raw = json.dumps(raw, allow_nan=False)
+        except (TypeError, ValueError, RecursionError) as exc:
+            return {}, str(exc)
+    if not isinstance(raw, str):
+        return {}, "expected a JSON object"
+    if len(raw) > MAX_HISTORY_CHARS:
+        return {}, "tool arguments too large"
+    raw = raw.strip()
     if not raw:
         return {}, None
 
     try:
         parsed = json.loads(raw)
-        if isinstance(parsed, dict):
-            return parsed, None
-        return {"_value": parsed}, None
+        if not isinstance(parsed, dict):
+            return {}, "expected a JSON object"
+        _validate_tool_object(parsed)
+        return parsed, None
     except json.JSONDecodeError:
         pass
+    except (ValueError, RecursionError) as exc:
+        return {}, str(exc)
 
     try:
+        # Preserve the existing fallback for single-quoted object literals.
+        if len(raw) > 32768 or sum(raw.count(c) for c in "+-~") > 800:
+            raise ValueError("non-JSON literal exceeds repair budget")
         parsed = ast.literal_eval(raw)
         if isinstance(parsed, dict):
-            return parsed, None
-    except (ValueError, SyntaxError):
+            if any(not isinstance(key, str) for key in parsed):
+                return {}, "argument names must be strings"
+            _validate_tool_object(parsed)
+            return json.loads(json.dumps(parsed, allow_nan=False)), None
+    except (TypeError, ValueError, SyntaxError, RecursionError):
         pass
 
     try:
@@ -327,8 +364,9 @@ def _parse_tool_arguments(
         repaired = _escape_bad_backslashes(repaired)
         parsed = json.loads(repaired)
         if isinstance(parsed, dict):
+            _validate_tool_object(parsed)
             return parsed, None
-    except (json.JSONDecodeError, TypeError):
+    except (ValueError, TypeError, RecursionError):
         pass
 
     return {}, (
@@ -350,7 +388,9 @@ def _normalize_message_for_api(msg: dict) -> dict:
 
     new_calls: list[dict] = []
     for tc in tool_calls:
-        fn = tc.get("function") or {}
+        if not isinstance(tc, dict) or not isinstance(tc.get("function"), dict):
+            continue
+        fn = tc["function"]
         raw = fn.get("arguments")
         parsed, _ = _parse_tool_arguments(fn.get("name", ""), raw or "{}")
         new_fn = dict(fn)
@@ -374,7 +414,6 @@ def _repair_tool_call_history(messages: list[dict]) -> list[dict]:
     while i < len(messages):
         msg = messages[i]
         if not isinstance(msg, dict):
-            repaired.append(msg)
             i += 1
             continue
 
@@ -387,11 +426,12 @@ def _repair_tool_call_history(messages: list[dict]) -> list[dict]:
         if role == "assistant" and tool_calls:
             expected_ids = {
                 str(tc.get("id"))
-                for tc in tool_calls
+                for tc in (tool_calls if isinstance(tool_calls, list) else [])
                 if isinstance(tc, dict) and tc.get("id")
             }
-            if not expected_ids:
-                repaired.append(msg)
+            if not isinstance(tool_calls, list) or len(expected_ids) != len(tool_calls):
+                if msg.get("content"):
+                    repaired.append({k: v for k, v in msg.items() if k != "tool_calls"})
                 i += 1
                 continue
 
@@ -409,15 +449,7 @@ def _repair_tool_call_history(messages: list[dict]) -> list[dict]:
                 if call_id_str in expected_ids and call_id_str not in matched:
                     matched.add(call_id_str)
                     block.append(nxt)
-                    j += 1
-                    continue
-                if call_id_str and call_id_str in expected_ids:
-                    block.append(nxt)
-                    j += 1
-                    continue
-                block.append(nxt)
                 j += 1
-                break
 
             if matched == expected_ids:
                 repaired.append(msg)
@@ -425,7 +457,9 @@ def _repair_tool_call_history(messages: list[dict]) -> list[dict]:
                 i = j
                 continue
 
-            i += 1
+            if msg.get("content"):
+                repaired.append({k: v for k, v in msg.items() if k != "tool_calls"})
+            i = j
             continue
 
         repaired.append(msg)
@@ -1764,13 +1798,7 @@ class AgnesClient:
 
     @staticmethod
     def _parse_retry_after(response: httpx.Response) -> Optional[float]:
-        raw = response.headers.get("retry-after")
-        if not raw:
-            return None
-        try:
-            return max(0.0, float(raw))
-        except ValueError:
-            return 30.0
+        return ProviderAdapter._parse_retry_after(response)
 
     def _headers_for(self, api_key: str, *, stream: bool = True) -> dict[str, str]:
         provider = self.provider
@@ -2515,7 +2543,7 @@ class ToolRegistry:
     def __init__(self, web_agent: Optional[Any], code_agent: Optional[Any]):
         self.web = web_agent
         self.code = code_agent
-        self._schemas: list[dict] = []
+        self._schemas: list[dict] = list(engineering_skills.SCHEMAS)
         self._enabled: set[str] = set()
         self._locks: dict[str, asyncio.Lock] = {}
         self._build()
@@ -2564,6 +2592,23 @@ class ToolRegistry:
         return False
 
     async def _do_dispatch(self, name: str, arguments: dict) -> Any:
+        if name in {"skill_catalog", "skill_run"}:
+            handler = engineering_skills.catalog if name == "skill_catalog" else engineering_skills.run
+            if name == "skill_run" and "path" in arguments:
+                if set(arguments) != {"skill", "path"} or not isinstance(arguments["path"], str):
+                    return {"error": "invalid_arguments", "message": "provide a skill and one file path"}
+                if not self.is_enabled("workspace") or self.code is None:
+                    return {"error": "workspace_unavailable"}
+                try:
+                    text = await asyncio.to_thread(self.code.ws.read_utf8_document, arguments["path"],
+                                                   engineering_skills.MAX_INPUT)
+                except (OSError, ValueError, RuntimeError, WorkspaceError) as exc:
+                    return {"error": "invalid_input", "message": str(exc)[:400]}
+                arguments = {"skill": arguments["skill"], "text": text}
+            try:
+                return handler(**arguments)
+            except TypeError as exc:
+                return {"error": "invalid_arguments", "message": str(exc)}
         if name == "web_search":
             if self.web is None:
                 return {"error": "web agent is not attached"}
@@ -2580,6 +2625,10 @@ class ToolRegistry:
         return await self.code.dispatch(name, **arguments)
 
     async def dispatch(self, name: str, arguments: dict) -> Any:
+        if not isinstance(name, str) or name not in self._enabled:
+            return {"error": "unknown_or_disabled_tool"}
+        if not isinstance(arguments, dict) or any(not isinstance(key, str) for key in arguments):
+            return {"error": "invalid_arguments"}
         if name in _PARALLEL_SAFE_TOOLS:
             return await self._do_dispatch(name, arguments)
         async with self._lock_for(name):
@@ -3915,18 +3964,27 @@ class Agent:
                 self.ui.content_delta(content)
                 state["content"] += content
 
-            for tc in delta.get("tool_calls") or []:
-                idx = tc.get("index", 0)
+            for position, tc in enumerate(delta.get("tool_calls") or []):
+                if not isinstance(tc, dict):
+                    continue
+                idx = tc.get("index", position)
+                if type(idx) is not int or idx < 0:
+                    continue
                 slot = tc_acc.setdefault(
                     idx, {"id": "", "name": "", "arguments": ""}
                 )
                 if tc.get("id"):
                     slot["id"] = tc["id"]
                 fn = tc.get("function") or {}
+                if not isinstance(fn, dict):
+                    continue
                 if fn.get("name"):
                     slot["name"] = fn["name"]
-                if fn.get("arguments"):
-                    slot["arguments"] += fn["arguments"]
+                fragment = fn.get("arguments")
+                if isinstance(fragment, str):
+                    slot["arguments"] += fragment
+                elif fragment is not None:
+                    slot["arguments"] += json.dumps(fragment)
 
         if in_content:
             self.ui.content_end()

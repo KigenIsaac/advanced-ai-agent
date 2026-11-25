@@ -1,6 +1,6 @@
 import pytest
 
-from codeagent.testing import Testing
+from codeagent.testing import Testing as ProjectTestRunner
 from codeagent.workspace import PathTraversal, Workspace
 from llm_providers.base import ProviderAdapter
 
@@ -49,7 +49,7 @@ def test_workspace_search_finds_matching_code(tmp_path):
     ],
 )
 def test_testing_builds_expected_commands(framework, path, test_name, expected):
-    assert Testing._command(framework, path, test_name, None) == expected
+    assert ProjectTestRunner._command(framework, path, test_name, None) == expected
 
 
 def test_testing_extracts_pytest_failures():
@@ -57,7 +57,7 @@ def test_testing_extracts_pytest_failures():
 FAILED tests/test_api.py::test_login - AssertionError
 ERROR tests/test_db.py::test_connection - RuntimeError
 """
-    failures = Testing.__new__(Testing)._extract_failures(output, "pytest")
+    failures = ProjectTestRunner.__new__(ProjectTestRunner)._extract_failures(output, "pytest")
 
     assert failures == [
         {

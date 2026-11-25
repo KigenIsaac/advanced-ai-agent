@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import shlex
 from pathlib import Path
 from typing import Optional
 
@@ -24,7 +25,7 @@ class Testing:
     def framework(self) -> Optional[str]:
         root = self.ws.root
         if (root / "pyproject.toml").exists() or (root / "pytest.ini").exists() \
-                or (root / "setup.cfg").exists() or (root / "tests").is_dir():
+                or (root / "setup.cfg").exists():
             if shutil.which("pytest"):
                 return "pytest"
             return "unittest"
@@ -44,6 +45,8 @@ class Testing:
             return "cargo"
         if (root / "go.mod").exists():
             return "go"
+        if any(root.glob("test_*.py")) or any(root.glob("*_test.py")) or (root / "tests").is_dir():
+            return "pytest" if shutil.which("pytest") else "unittest"
         return None
 
     # ------------------------------------------------------------------ #
@@ -56,9 +59,10 @@ class Testing:
         patterns = {
             "pytest": ["test_*.py", "*_test.py"],
             "unittest": ["test_*.py", "*_test.py"],
-            "jest": ["*.test.js", "*.test.ts", "*.test.jsx", "*.test.tsx",
-                     "*.spec.js", "*.spec.ts"],
-            "vitest": ["*.test.ts", "*.test.tsx", "*.spec.ts"],
+            "jest": [f"*.{kind}.{ext}" for kind in ("test", "spec")
+                     for ext in ("js", "jsx", "ts", "tsx")],
+            "vitest": [f"*.{kind}.{ext}" for kind in ("test", "spec")
+                      for ext in ("js", "jsx", "ts", "tsx", "mjs", "mts")],
             "mocha": ["*.spec.js", "*.test.js"],
             "cargo": ["*.rs"],
             "go": ["*_test.go"],
@@ -97,21 +101,28 @@ class Testing:
     def _command(fw: Optional[str], path: Optional[str],
                  test_name: Optional[str], extra: Optional[str]) -> Optional[str]:
         suffix = f" {extra}" if extra else ""
-        if fw in ("pytest", "unittest"):
-            target = path or test_name or ""
-            return f"pytest -v {target}{suffix}".strip()
-        if fw == "jest":
-            target = path or (f"-t '{test_name}'" if test_name else "")
-            return f"npx jest {target}{suffix}".strip()
-        if fw == "vitest":
-            target = path or (f"-t '{test_name}'" if test_name else "")
-            return f"npx vitest run {target}{suffix}".strip()
-        if fw == "mocha":
-            return f"npx mocha {path or ''}{suffix}".strip()
+        def command(parts):
+            return shlex.join(parts) + suffix
+
+        target = [path] if path else []
+        if fw == "pytest":
+            # A standalone test name may be a pytest node ID.
+            selector = ["-k", test_name] if path and test_name else [test_name] if test_name else []
+            return command(["pytest", "-v", *target, *selector])
+        if fw == "unittest":
+            selector = ["-k", test_name] if test_name else []
+            return command(["python", "-m", "unittest", *selector, *target])
+        if fw in ("jest", "vitest", "mocha"):
+            parts = ["npx", fw]
+            if fw == "vitest":
+                parts.append("run")
+            if test_name:
+                parts.extend(["--grep" if fw == "mocha" else "-t", test_name])
+            return command(parts + target)
         if fw == "cargo":
-            return f"cargo test {test_name or ''}{suffix}".strip()
+            return command(["cargo", "test", *([test_name] if test_name else [])])
         if fw == "go":
-            return f"go test ./...{suffix}".strip()
+            return command(["go", "test", *(["-run", test_name] if test_name else []), *(target or ["./..."])])
         return None
 
     # ------------------------------------------------------------------ #
