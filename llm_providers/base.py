@@ -1,5 +1,8 @@
 import asyncio
 import json
+import math
+import time
+from email.utils import parsedate_to_datetime
 import uuid
 from typing import Any, Optional
 
@@ -51,8 +54,15 @@ class ProviderAdapter:
         if not raw:
             return None
         try:
-            return max(0.0, float(raw))
+            seconds = float(raw)
+            return max(0.0, seconds) if math.isfinite(seconds) else 30.0
         except ValueError:
+            try:
+                date = parsedate_to_datetime(raw)
+                if date.tzinfo is not None:
+                    return max(0.0, date.timestamp() - time.time())
+            except (TypeError, ValueError, OverflowError, OSError):
+                pass
             return 30.0
 
     @staticmethod

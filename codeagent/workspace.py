@@ -90,7 +90,7 @@ class Workspace:
         return str(p.relative_to(self.root)).replace(os.sep, "/")
 
     def _is_ignored(self, p: Path) -> bool:
-        for part in p.parts:
+        for part in p.relative_to(self.root).parts:
             if part in self.ignores:
                 return True
         return False
@@ -125,6 +125,17 @@ class Workspace:
         out.sort(key=lambda d: (d["type"] != "dir", d["path"]))
         return out
 
+    def read_utf8_document(self, path: str, max_chars: int) -> str:
+        """Read a bounded regular file, preserving its original line endings."""
+        target = self._resolve(path)
+        if not target.is_file():
+            raise NotFound(path)
+        with target.open(encoding="utf-8", newline="") as source:
+            text = source.read(max_chars + 1)
+        if len(text) > max_chars:
+            raise WorkspaceError(f"file exceeds {max_chars} characters")
+        return text
+
     def read_file(self, path: str, encoding: str = "utf-8",
                   start_line: Optional[int] = None,
                   end_line: Optional[int] = None) -> dict:
@@ -138,7 +149,7 @@ class Workspace:
         total = len(lines)
         if start_line is not None or end_line is not None:
             s = max(1, start_line or 1) - 1
-            e = min(total, end_line or total)
+            e = total if end_line is None else max(0, min(total, end_line))
             lines = lines[s:e]
         return {
             "path": self._rel(p),
@@ -167,6 +178,8 @@ class Workspace:
                   count: int = 1) -> dict:
         p = self._resolve(path)
         text = p.read_text(encoding="utf-8")
+        if not old_text or type(count) is not int or count == 0 or count < -1:
+            raise WorkspaceError("provide nonempty old_text and a positive count or -1")
         occurrences = text.count(old_text)
         if occurrences == 0:
             raise NotFound(f"old_text not found in {path}")
@@ -177,7 +190,7 @@ class Workspace:
             )
         replaced = text.replace(old_text, new_text, count if count >= 0 else occurrences)
         p.write_text(replaced, encoding="utf-8")
-        return {"path": self._rel(p), "replaced": occurrences if count < 0 else count}
+        return {"path": self._rel(p), "replaced": occurrences if count < 0 else min(count, occurrences)}
 
     def delete_file(self, path: str) -> dict:
         p = self._resolve(path)

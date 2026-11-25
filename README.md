@@ -90,6 +90,22 @@ The test suite covers configuration behavior plus deterministic workspace, test-
 
 ---
 
+## Engineering skills
+
+The agent can discover 63 local engineering skills with `skill_catalog` and call them with `skill_run` in individual sessions and swarm workers. Each skill has a dedicated implementation. The seven report skills combine checks on one parsed document. The model receives two short tool definitions and can request descriptions by group or keyword.
+
+| Group | Example task | Report skill |
+| --- | --- | --- |
+| Python | Locate mutable defaults, bare exception handlers and missing docstrings | `python_review` |
+| CSV | Profile imports for missing cells, duplicate records and constant columns | `csv_quality_report` |
+| JSON | Measure nesting, count types and locate null or empty values by JSON Pointer | `json_structure_report` |
+| Text | Check conflict markers, indentation, trailing whitespace and line endings | `text_patch_preflight` |
+| INI | Review effective settings, including inherited defaults | `ini_config_review` |
+| Node package manifests | Inspect engine constraints, dependency overlap, paired scripts and workspaces | `package_install_review` |
+| JUnit XML | Summarize test outcomes and extract individual failure messages | `junit_triage` |
+
+For example, ask the agent “Triage reports/junit.xml and show me which tests failed.” It can call `skill_run` with `{"skill":"junit_triage","path":"reports/junit.xml"}`. A path uses the enabled project workspace and preserves UTF-8 text and line endings. Inline documents use the `text` argument. Each call accepts up to 32,768 characters and returns a result or a structured error. Python analysis also limits token count. All skills use the standard library.
+
 ## Overview
 
 Most LLM applications stop at producing text or code suggestions.
