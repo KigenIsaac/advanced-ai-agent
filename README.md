@@ -101,7 +101,7 @@ Each server process serves one agent session on IPv4 loopback. Keep its tokenize
 
 ### Live terminal output
 
-For agent-issued foreground terminal commands, expand the existing tool bubble to
+For agent-issued foreground and background terminal commands, expand the existing tool bubble to
 follow stdout and stderr as the child flushes them. Each stream shows its latest
 16,000 characters. The usual exit code and final output still reach the agent.
 
@@ -110,7 +110,7 @@ of the newest output (up to 4,096 characters) after 15 seconds of observation,
 and again when new output has accumulated, at most four times per command.
 These additional provider requests can use tokens. Set
 `AGNES_TERMINAL_MODEL_UPDATES=0` to keep live UI output without those requests.
-Background processes retain their process-ID based interface.
+Background calls return a process ID immediately. Their original bubble continues streaming until exit while the agent works on the next step.
 
 ### Run tests
 

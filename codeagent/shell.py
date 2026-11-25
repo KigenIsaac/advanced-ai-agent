@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import asyncio
 import codecs
-from terminal_stream import output_sink
+from terminal_stream import background_finished, output_sink
 import os
 import signal
 import shutil
 import sys
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -37,9 +37,9 @@ class Process:
     cwd: str
     started: float
     proc: asyncio.subprocess.Process
-    stdout_log: list[str] = field(default_factory=list)
-    stderr_log: list[str] = field(default_factory=list)
-    _tasks: list[asyncio.Task] = field(default_factory=list)
+    stdout_log: str = ""
+    stderr_log: str = ""
+    finished: Optional[asyncio.Task] = None
 
     def status(self) -> str:
         if self.proc.returncode is None:
@@ -268,21 +268,34 @@ class Shell:
         p = Process(pid=proc.pid, id=proc_id, command=command,
                     cwd=workdir, started=time.time(), proc=proc)
         self._procs[proc_id] = p
-        p._tasks.append(asyncio.create_task(self._pump(proc.stdout, p.stdout_log)))
-        p._tasks.append(asyncio.create_task(self._pump(proc.stderr, p.stderr_log)))
+        p.finished = asyncio.create_task(self._follow(p))
         return proc_id
 
-    async def _pump(self, stream: asyncio.StreamReader, log: list[str]):
-        try:
+    async def _follow(self, process):
+        sink = output_sink.get()
+        finished = background_finished.get()
+
+        async def pump(stream, channel):
+            decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+            attr = channel + "_log"
             while True:
-                line = await stream.readline()
-                if not line:
-                    break
-                log.append(line.decode(errors="replace"))
-                if len(log) > 5000:
-                    del log[:2000]
-        except Exception:
-            pass
+                block = await stream.read(8192)
+                text = decoder.decode(block, final=not block)
+                if text:
+                    setattr(process, attr, (getattr(process, attr) + text)[-self.max_output_bytes:])
+                    if sink:
+                        sink(channel, text)
+                if not block:
+                    return
+
+        try:
+            async with asyncio.TaskGroup() as group:
+                group.create_task(pump(process.proc.stdout, "stdout"))
+                group.create_task(pump(process.proc.stderr, "stderr"))
+                group.create_task(process.proc.wait())
+        finally:
+            if finished:
+                await finished(self.get_process(process.id))
 
     def list_processes(self) -> list[dict]:
         return [
@@ -298,8 +311,8 @@ class Shell:
         return {
             "id": p.id, "pid": p.pid, "command": p.command, "cwd": p.cwd,
             "status": p.status(), "started": p.started,
-            "stdout": "".join(p.stdout_log)[-self.max_output_bytes:],
-            "stderr": "".join(p.stderr_log)[-self.max_output_bytes:],
+            "stdout": p.stdout_log,
+            "stderr": p.stderr_log,
             "exit_code": p.proc.returncode,
         }
 
@@ -333,7 +346,7 @@ class Shell:
         if not p:
             raise ShellError(f"No process {proc_id}")
         try:
-            await asyncio.wait_for(p.proc.wait(), timeout=timeout)
+            await asyncio.wait_for(asyncio.shield(p.finished), timeout=timeout)
         except asyncio.TimeoutError:
             raise ShellTimeout(
                 f"Process {proc_id} still running after {timeout}s"
@@ -351,9 +364,12 @@ class Shell:
                     p.proc.kill()
                 except Exception:
                     pass
-        for p in self._procs.values():
-            for t in p._tasks:
-                t.cancel()
+        tasks = [p.finished for p in self._procs.values() if p.finished]
+        if tasks:
+            _, pending = await asyncio.wait(tasks, timeout=3)
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     # ------------------------------------------------------------------ #
     # Layer 5 — command discovery helpers
