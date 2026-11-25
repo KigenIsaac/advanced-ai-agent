@@ -83,7 +83,8 @@ def test_concurrent_reservations_cannot_both_exceed_cap(tmp_path):
     filename = tmp_path / "shared.db"
     model = route(input_price=100, output_price=100)
     messages = [{"role": "user", "content": "x"}]
-    ledger = BudgetLedger(filename, 0.011)
+    # One reservation includes the serialized input as well as 100 output tokens.
+    ledger = BudgetLedger(filename, 0.020)
     def reserve_once():
         try:
             return ledger.reserve(model, messages, 100)
