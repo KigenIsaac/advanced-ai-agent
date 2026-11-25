@@ -5,7 +5,10 @@ import contextlib
 import json
 import secrets
 import webbrowser
-from collections import deque
+from bisect import bisect_left
+from html import escape
+
+from markdown_it import MarkdownIt
 from pathlib import Path
 
 from aiohttp import web
@@ -17,10 +20,25 @@ from main import (
     ProjectMenu,
     TerminalUI,
     is_error_result,
-    summarize_result,
+    Agent,
 )
 
 STATIC = Path(__file__).with_name("static")
+
+
+markdown = MarkdownIt("commonmark", {"html": False}).enable(["table", "strikethrough"])
+
+
+def image_link(tokens, idx, options, env):
+    token = tokens[idx]
+    url = token.attrGet("src") or ""
+    label = escape(token.content or "View image")
+    if url.lower().startswith(("https://", "http://")):
+        return f'<a href="{escape(url, quote=True)}">{label}</a>'
+    return label
+
+
+markdown.renderer.rules["image"] = image_link
 
 
 class ConsoleSink:
@@ -43,7 +61,8 @@ class BrowserUI(TerminalUI):
         self.console = Console(
             file=ConsoleSink(self), width=90, color_system=None, highlight=False
         )
-        self.rows = deque(maxlen=160)
+        self.rows = []
+        self.active_tool = None
         self.revision = 0
         self.seq = 0
         self.question = None
@@ -60,7 +79,7 @@ class BrowserUI(TerminalUI):
     def add(self, kind, text, label=""):
         self.seq += 1
         text = str(text)
-        if len(text) > 6000:
+        if kind == "console" and len(text) > 6000:
             text = text[:6000] + "\n[Display truncated]"
         self.rows.append(
             {"id": self.seq, "kind": kind, "text": text, "label": label}
@@ -107,7 +126,9 @@ class BrowserUI(TerminalUI):
 
     def restore(self):
         self.rows.clear()
-        for msg in (self.app.session.messages if self.app.session else [])[-100:]:
+        self.active_tool = self.live = None
+        calls = {}
+        for msg in self.app.session.messages if self.app.session else []:
             role = msg.get("role")
             if (
                 role in {"user", "assistant"}
@@ -115,8 +136,23 @@ class BrowserUI(TerminalUI):
                 and msg["content"]
             ):
                 self.add(role, msg["content"])
+            if role == "assistant":
+                for call in msg.get("tool_calls") or []:
+                    fn = call.get("function") or {}
+                    row = self.tool_row(fn.get("name") or "Tool", fn.get("arguments", ""))
+                    row["status"] = "No saved result"
+                    if call.get("id"):
+                        calls[call["id"]] = row
             elif role == "tool":
-                self.add("tool", msg.get("content", ""), "Saved tool result")
+                row = calls.pop(msg.get("tool_call_id"), None)
+                if row is None:
+                    row = self.tool_row(msg.get("name") or "Saved tool", "")
+                raw = msg.get("content", "")
+                try:
+                    result = json.loads(raw)
+                except (TypeError, ValueError):
+                    result = raw
+                row.update(result=raw, status="Failed" if is_error_result(result) else "Completed")
         self.dirty()
 
     def conversation_changed(self, session, command):
@@ -142,12 +178,8 @@ class BrowserUI(TerminalUI):
     def content_delta(self, text):
         if self.live is None:
             self.content_start()
-        combined = self.live["text"] + text
-        self.live["text"] = (
-            combined
-            if len(combined) <= 32000
-            else "[Earlier text omitted from live view]\n" + combined[-31000:]
-        )
+        self.live.pop("html", None)
+        self.live["text"] += text
         self.dirty()
 
     def content_end(self):
@@ -162,17 +194,26 @@ class BrowserUI(TerminalUI):
     def reasoning_end(self):
         pass
 
+    def tool_row(self, name, arguments):
+        row = self.add("tool", "", name)
+        row.update(arguments=arguments, status="Running")
+        return row
+
     def tool_call(self, name, arguments):
-        self.add("activity", name, "Tool call")
+        self.active_tool = self.tool_row(name, arguments)
 
     def tool_result(self, name, result, elapsed, verbose=False, key_label=""):
-        self.add(
-            "error" if is_error_result(result) else "tool",
-            json.dumps(result, default=str)
-            if verbose
-            else summarize_result(name, result),
-            f"{name} · {elapsed:.2f}s",
-        )
+        row = self.active_tool or self.tool_row(name, "")
+        row.update(result=Agent._serialize_tool_result(result), elapsed=round(elapsed, 2),
+                   status="Failed" if is_error_result(result) else "Completed")
+        self.active_tool = None
+        self.dirty()
+
+    def display_rows(self, rows):
+        for row in rows:
+            if row["kind"] in {"user", "assistant"} and "html" not in row:
+                row["html"] = markdown.render(row["text"])
+        return rows
 
     def error(self, msg):
         self.add("error", msg)
@@ -193,7 +234,9 @@ class BrowserUI(TerminalUI):
             "revision": self.revision,
             "question": self.question,
             "done": self.done,
-            "rows": list(self.rows),
+            "rows": self.display_rows(self.rows[-160:]),
+            "firstId": self.rows[0]["id"] if self.rows else None,
+            "hasOlder": len(self.rows) > 160,
             "project": app.project.name if app.project else "Local workspace",
             "agent": cfg.agent_name if cfg else "Agnes Agent",
             "provider": cfg.provider if cfg else app.settings["provider"],
@@ -292,10 +335,24 @@ def application(ui, token, authority):
             )
         )
 
+    async def history(request):
+        store = ui.app.project or ui.app.chat_store
+        return web.json_response([e for e in store.list_conversations() if e["id"] != "current"])
+
+    async def earlier(request):
+        try:
+            before = int(request.query["before"])
+        except (KeyError, ValueError):
+            raise web.HTTPBadRequest()
+        end = bisect_left(ui.rows, before, key=lambda row: row["id"])
+        return web.json_response({"rows": ui.display_rows(ui.rows[max(0, end-160):end]), "hasOlder": end > 160})
+
     app = web.Application(middlewares=[guard], client_max_size=160000)
     app.router.add_get("/api/state", state)
     app.router.add_post("/api/input", respond)
     app.router.add_get("/api/skills", catalog)
+    app.router.add_get("/api/history", history)
+    app.router.add_get("/api/earlier", earlier)
     for route, file in [
         ("/", "index.html"),
         ("/app.js", "app.js"),
