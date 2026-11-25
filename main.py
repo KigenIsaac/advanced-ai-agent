@@ -2616,6 +2616,11 @@ class ToolRegistry:
     async def _do_dispatch(self, name: str, arguments: dict) -> Any:
         if name in {"skill_catalog", "skill_run"}:
             handler = engineering_skills.catalog if name == "skill_catalog" else engineering_skills.run
+            skill = arguments.get("skill")
+            if name == "skill_run" and isinstance(skill, str) and skill in engineering_skills.workflows.HANDLERS:
+                if set(arguments) - {"skill", "options"}:
+                    return {"error": "invalid_arguments", "message": "use options for this workflow"}
+                return await engineering_skills.workflows.execute(self, skill, arguments.get("options", {}))
             if name == "skill_run" and "path" in arguments:
                 if set(arguments) != {"skill", "path"} or not isinstance(arguments["path"], str):
                     return {"error": "invalid_arguments", "message": "provide a skill and one file path"}
@@ -2628,6 +2633,8 @@ class ToolRegistry:
                     return {"error": "invalid_input", "message": str(exc)[:400]}
                 arguments = {"skill": arguments["skill"], "text": text}
             try:
+                if name == "skill_run":
+                    return await asyncio.to_thread(handler, **arguments)
                 return handler(**arguments)
             except TypeError as exc:
                 return {"error": "invalid_arguments", "message": str(exc)}

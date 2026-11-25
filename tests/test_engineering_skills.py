@@ -91,7 +91,7 @@ def test_skill_registry_wire_result(name, source, expected):
 
 def test_every_advertised_skill_is_covered():
     assert set(skills.SKILLS) == {case[0] for case in EXAMPLES}
-    assert sum(skills.catalog()["groups"].values()) == len(EXAMPLES)
+    assert sum(skills.catalog()["groups"][group] for group in CASES) == len(EXAMPLES)
     assert set(skills.catalog("junit", "timing")["skills"]) == {"junit_untimed"}
 
 

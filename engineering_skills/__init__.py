@@ -5,7 +5,8 @@ import json
 import tokenize
 from xml.etree.ElementTree import ParseError
 
-from . import formats, operations
+from . import analyzers, formats, operations, workflows
+from collections import Counter
 
 MAX_INPUT = 32_768
 MAX_RESULT = 24_000
@@ -24,6 +25,12 @@ SKILLS = {
 }
 
 
+DESCRIPTIONS = {name: tool.__doc__ for name, (_, tool) in SKILLS.items()}
+DESCRIPTIONS.update(analyzers.describe())
+DESCRIPTIONS.update(workflows.DESCRIPTIONS)
+GROUP_COUNTS = dict(Counter(name.split("_", 1)[0] for name in DESCRIPTIONS))
+
+
 def _schema(name, description, properties, required):
     return {"type": "function", "function": {"name": name, "description": description,
             "parameters": {"type": "object", "properties": properties, "required": required,
@@ -32,34 +39,49 @@ def _schema(name, description, properties, required):
 
 SCHEMAS = [
     _schema("skill_catalog", "Discover deterministic engineering skills by format or keyword. Omit filters for group counts.",
-            {"group": {"type": "string", "enum": list(GROUPS)}, "query": {"type": "string"}}, []),
-    _schema("skill_run", "Run one catalog skill. Supply exactly one of text or path. A workspace-relative path reads UTF-8 locally and preserves line endings.",
-            {"skill": {"type": "string"}, "text": {"type": "string", "maxLength": MAX_INPUT}, "path": {"type": "string"}}, ["skill"]),
+            {"group": {"type": "string", "enum": list(GROUP_COUNTS)}, "query": {"type": "string"},
+             "offset": {"type": "integer", "minimum": 0},
+             "limit": {"type": "integer", "minimum": 1, "maximum": 50}}, []),
+    _schema("skill_run", "Run one catalog skill. For web, document and project skills, pass the options listed by skill_catalog. Other skills take exactly one of text or path. A workspace-relative path reads UTF-8 locally and preserves line endings.",
+            {"skill": {"type": "string"}, "text": {"type": "string", "maxLength": MAX_INPUT}, "path": {"type": "string"}, "options": {"type":"object"}}, ["skill"]),
 ]
 
 
-def catalog(group=None, query=""):
-    if group is not None and (not isinstance(group, str) or group not in GROUPS):
-        return {"error": "unknown_group", "groups": list(GROUPS)}
+def catalog(group=None, query="", offset=0, limit=20):
+    if group is not None and (not isinstance(group, str) or group not in GROUP_COUNTS):
+        return {"error": "unknown_group", "groups": list(GROUP_COUNTS)}
     if not isinstance(query, str) or len(query) > 256:
         return {"error": "invalid_query"}
+    if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 50:
+        return {"error": "invalid_page"}
     terms = query.lower().split()
     if not group and not terms:
-        return {"groups": {g: len(names.split()) for g, (_, names) in GROUPS.items()}}
-    return {"skills": {name: tool.__doc__ for name, (_, tool) in SKILLS.items()
-                       if (not group or name.startswith(group + "_"))
-                       and all(term in (name + " " + tool.__doc__).lower() for term in terms)}}
+        return {"groups": dict(GROUP_COUNTS)}
+    matches = []
+    for name, description in DESCRIPTIONS.items():
+        if group and not name.startswith(group + "_"):
+            continue
+        if all(term in (name + " " + description).lower() for term in terms):
+            matches.append(name)
+    matches.sort(key=lambda name: (name != query.strip().lower(), -sum(t in name for t in terms), name))
+    page = matches[offset:offset + limit]
+    return {"skills": {name: DESCRIPTIONS[name] for name in page}, "total": len(matches),
+            "next_offset": offset + limit if offset + limit < len(matches) else None}
 
 
 def run(skill, text):
-    if not isinstance(skill, str) or skill not in SKILLS:
+    if not isinstance(skill, str) or skill not in DESCRIPTIONS:
         return {"error": "unknown_skill"}
+    if skill in workflows.HANDLERS:
+        return {"error": "session_required"}
     if not isinstance(text, str) or len(text) > MAX_INPUT:
         return {"error": "invalid_input", "message": f"provide text up to {MAX_INPUT} characters"}
-    parser, tool = SKILLS[skill]
     try:
         text.encode("utf-8")
         source = text if skill.startswith("text_") else text.removeprefix("\ufeff")
+        if skill not in SKILLS:
+            return analyzers.analyze(skill, source)
+        parser, tool = SKILLS[skill]
         document = parser(source)
         if parser in (formats.json_value, formats.manifest):
             # Also enforce the nesting limit for formatting and metadata tools.
