@@ -20,6 +20,20 @@ const el = (tag, txt, cls) => {
   if (cls) n.className = cls;
   return n;
 };
+const themeControl = $("theme");
+try {
+  const saved = localStorage.getItem("agnes-theme");
+  if (["light", "dark"].includes(saved)) themeControl.value = saved;
+} catch { /* Browser storage is optional. */ }
+function applyTheme() {
+  document.documentElement.dataset.theme = themeControl.value;
+}
+applyTheme();
+themeControl.onchange = () => {
+  applyTheme();
+  try { localStorage.setItem("agnes-theme", themeControl.value); } catch {}
+};
+
 async function api(path, options = {}) {
   const r = await fetch("/api/" + path, {
     ...options,
@@ -48,25 +62,44 @@ function button(label, action, cls = "subtle") {
 function controls() {
   const q = state?.question,
     ready = !!q && !pending && connected && !state.done;
+  $("send").textContent = pending ? "Sending…" : "Send";
   $("send").disabled = $("message").disabled = !ready;
+  $("documentControl").hidden = !q?.chat;
+  $("documentFile").disabled = $("removeDocument").disabled = !ready;
   for (const id of ["projects", "new", "history"])
     $(id).disabled = !ready || !q.chat;
   for (const b of $("choices").children) b.disabled = !ready;
   for (const b of $("toolList").querySelectorAll("button"))
     b.disabled = !ready || !q.chat;
 }
-async function send(text, id = state?.question?.id) {
+async function send(text, id = state?.question?.id, file = null) {
   if (!id || pending || !connected) return;
   pending = true;
   controls();
   $("alert").textContent = "";
   try {
-    await api("input", { method: "POST", body: JSON.stringify({ id, text }) });
+    let content = text;
+    if (file) {
+      if (file.size > 5 * 1024 ** 2) throw new Error("Choose a file under 5 MiB.");
+      const extension = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+      const response = await fetch("/api/document?extension=" + encodeURIComponent(extension), {
+        method: "POST", headers: { Authorization: "Bearer " + token }, body: file
+      });
+      if (!response.ok) throw new Error(await response.text());
+      const document = await response.json();
+      content += "\n\nAttached document " + JSON.stringify(file.name) + "\n" + document.text;
+      if (Array.from(content).length > 32000) throw new Error("Your message and document exceed 32,000 characters. Shorten one and try again.");
+    }
+    await api("input", { method: "POST", body: JSON.stringify({ id, text: content }) });
+    if (file) {
+      resetDocument();
+      $("message").value = "";
+    }
     if (state?.question?.id === id) state.question = null;
     if ($("message").value === text || text === "/swarm " + $("message").value)
       $("message").value = "";
   } catch (e) {
-    $("alert").textContent = e.message;
+    $(file ? "documentError" : "alert").textContent = e.message;
   } finally {
     pending = false;
     controls();
@@ -279,6 +312,7 @@ function render(s) {
   const previous = state?.question?.id;
   if (current === "settings" && !savingCredential && $("credentialName").value === "provider"
       && (state?.needsCredential !== s.needsCredential || state?.provider !== s.provider)) loadCredential();
+  if (previous !== s.question?.id) resetDocument();
   state = s;
   $("project").textContent = s.project;
   $("context").textContent = s.agent + " · " + s.model;
@@ -428,10 +462,27 @@ $("search").oninput = () => {
 };
 $("group").onchange = () => query();
 $("more").onclick = () => query(true);
+function resetDocument() {
+  $("documentName").textContent = "";
+  $("documentFile").value = "";
+  $("removeDocument").hidden = true;
+  $("documentError").textContent = "";
+}
+$("documentFile").onchange = () => {
+  $("documentName").textContent = $("documentFile").files[0]?.name || "";
+  $("removeDocument").hidden = !$("documentFile").files.length;
+  $("documentError").textContent = "";
+};
+$("removeDocument").onclick = resetDocument;
 $("composer").onsubmit = (e) => {
   e.preventDefault();
-  if (state?.question?.chat && !$("message").value.trim()) return;
-  const text = $("message").value;
+  const file = state?.question?.chat && $("documentFile").files[0];
+  const text = $("message").value || (file ? "Read the attached document." : "");
+  if (state?.question?.chat && !text.trim()) return;
+  if (file && text.trimStart().startsWith("/")) {
+    $("documentError").textContent = "Send a chat message with the attachment. Select Swarm from Run mode for a swarm task.";
+    return;
+  }
   send(
     state?.question?.chat &&
       !state.swarm &&
@@ -439,6 +490,7 @@ $("composer").onsubmit = (e) => {
       !text.startsWith("/")
       ? "/swarm " + text
       : text,
+    state?.question?.id, file,
   );
 };
 $("message").onkeydown = (e) => {
