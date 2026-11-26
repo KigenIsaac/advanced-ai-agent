@@ -5,7 +5,7 @@ import json
 import tokenize
 from xml.etree.ElementTree import ParseError
 
-from . import analyzers, formats, operations, workflows, system, assurance
+from . import languages, analyzers, formats, operations, workflows, system, assurance
 from collections import Counter
 
 MAX_INPUT = 32_768
@@ -26,6 +26,7 @@ SKILLS = {
 
 
 DESCRIPTIONS = {name: tool.__doc__ for name, (_, tool) in SKILLS.items()}
+DESCRIPTIONS.update(languages.DESCRIPTIONS)
 DESCRIPTIONS.update(analyzers.describe())
 DESCRIPTIONS.update(workflows.DESCRIPTIONS)
 DESCRIPTIONS.update(system.DESCRIPTIONS)
@@ -82,7 +83,9 @@ def run(skill, text):
     try:
         text.encode("utf-8")
         source = text if skill.startswith("text_") else text.removeprefix("\ufeff")
-        if skill in assurance.DESCRIPTIONS:
+        if skill in languages.RULES:
+            result = languages.inspect(skill, source)
+        elif skill in assurance.DESCRIPTIONS:
             result = assurance.analyze(skill, source)
         else:
             if skill in system.TOOLS:
