@@ -6,6 +6,7 @@ import argparse
 import asyncio
 from dataclasses import replace
 from functools import partial
+from html import escape
 import ast
 import json
 import os
@@ -2568,7 +2569,8 @@ _PARALLEL_SAFE_TOOLS = {"web_search", "http"}
 
 
 class ToolRegistry:
-    def __init__(self, web_agent: Optional[Any], code_agent: Optional[Any]):
+    def __init__(self, web_agent: Optional[Any], code_agent: Optional[Any], confirm=None):
+        self.confirm = confirm
         self.web = web_agent
         self.code = code_agent
         self._schemas: list[dict] = list(engineering_skills.SCHEMAS)
@@ -2577,6 +2579,14 @@ class ToolRegistry:
         self._build()
 
     def _build(self) -> None:
+        if self.confirm is not None:
+            self._schemas.append({"type": "function", "function": {
+                "name": "request_consent",
+                "description": "Ask the user to approve one specific proposed action.",
+                "parameters": {"type": "object", "properties": {
+                    "question": {"type": "string", "minLength": 1, "maxLength": 500}
+                }, "required": ["question"], "additionalProperties": False},
+            }})
         if self.web is not None and WEB_SEARCH_SCHEMA is not None:
             self._schemas.append(WEB_SEARCH_SCHEMA)
 
@@ -2620,6 +2630,12 @@ class ToolRegistry:
         return False
 
     async def _do_dispatch(self, name: str, arguments: dict) -> Any:
+        if name == "request_consent":
+            question = arguments.get("question")
+            if (set(arguments) != {"question"} or not isinstance(question, str)
+                    or not question.strip() or len(question) > 500 or not question.isprintable()):
+                return {"error": "invalid_question"}
+            return {"approved": await self.confirm(question.strip())}
         if name in {"skill_catalog", "skill_run"}:
             handler = engineering_skills.catalog if name == "skill_catalog" else engineering_skills.run
             skill = arguments.get("skill")
@@ -3150,7 +3166,7 @@ class TerminalUI:
         session = self._get_session()
         try:
             text = await session.prompt_async(
-                message=HTML(f"<prompt>{label}{suffix}: </prompt>"),
+                message=HTML(f"<prompt>{escape(label)}{escape(suffix)}: </prompt>"),
                 multiline=False,
             )
         except (EOFError, KeyboardInterrupt):
@@ -3645,10 +3661,41 @@ def _project_context(config: Config) -> str:
     )
 
 
+def runtime_tool_guidance(schemas: list[dict]) -> str:
+    names = {schema["function"]["name"] for schema in schemas}
+    lines = ["# Tools enabled for this round", ", ".join(sorted(names)) or "None"]
+    if "skill_catalog" in names:
+        lines.extend([
+            "Installed skill groups: " + ", ".join(sorted(engineering_skills.GROUP_COUNTS)),
+            "When a skill fits the task, search skill_catalog by query or group. An empty "
+            "request lists group counts. Pass next_offset as offset to see more matches.",
+        ])
+    if "skill_run" in names:
+        lines.append(
+            "Use skill_run with the exact skill ID. For catalog entries that list Options, "
+            "supply workflow arguments in options. Other skills take one text input"
+            + (" or one workspace-relative UTF-8 path" if "workspace" in names else "")
+            + ". Check the returned result or error. A workflow can require a workspace, "
+            "Git or a web backend. Report missing prerequisites accurately."
+        )
+        if "workspace" in names:
+            lines.append("System design and assurance skills can save a result to a new workspace file with output.")
+    if "terminal" in names:
+        lines.append("For finite commands use terminal action=run. Output can stream during execution. "
+                     "Use the final exit code to verify success. For servers and watchers use "
+                     "action=background, inspect the returned process_id with action=get and "
+                     "stop it with action=kill when finished. Use commands appropriate to the platform.")
+    if "request_consent" in names:
+        lines.append("Before an action requiring consent, call request_consent with its scope and "
+                     "consequences. Wait for approved=true before proceeding. Approval covers only "
+                     "the stated action and does not override tool restrictions.")
+    return "\n".join(lines)
+
+
 def build_system_prompt(config: Config, tool_count: int) -> str:
     custom_instructions = (config.custom_instructions or "").strip()
     custom_block = f"\n# Custom instructions\n{custom_instructions}\n" if custom_instructions else ""
-    return f"""You are {config.agent_name}, a terminal-based autonomous agent that can search the web, browse pages, and operate on a software project.
+    return f"""You are {config.agent_name}, a coding agent working with the user through a chat or terminal interface.
 
 # Environment
 - Agent: {config.agent_name}
@@ -3657,13 +3704,12 @@ def build_system_prompt(config: Config, tool_count: int) -> str:
 - Platform: {platform.system()} {platform.release()} ({platform.machine()})
 - Python: {platform.python_version()}
 - Working directory: {os.getcwd()}
-- Available tools: {tool_count}
 
 {_project_context(config)}
 
 # Operating principles
 1. Use tools when you need real-world information, or must inspect or modify the project. Do not invent file contents, URLs, or tool output.
-2. Read before you write. Inspect a file before editing it. Prefer structured edits (`editor.apply` with `preview`) over whole-file rewrites.
+2. Read before you write. Inspect a file before editing it. When the editor tool is available, preview a structured edit before applying it.
 3. When a task has multiple steps, plan briefly, then act. Do not over-plan.
 4. Return tool results to the conversation before requesting the next action.
 5. Never claim success without evidence. Cite the file path, command output, or URL that supports the claim.
@@ -3671,20 +3717,13 @@ def build_system_prompt(config: Config, tool_count: int) -> str:
 7. Keep the objective, constraints, and runtime context stable across long tasks.
 8. Ask before destructive operations (deleting files, force-pushing, deploying).
 {custom_block}
-# Long-running commands
-- If a command starts a server, watcher, or any process that does not exit on its own (e.g. `npm run dev`, `go run ./cmd/server`, `uvicorn`, `flask run`, `python -m http.server`, `docker compose up`, `node server.js`, `cargo run`), use `terminal` with `action=background` — NOT `action=run`.
-- After starting a background process, wait 1–2 seconds, then check its stdout with `terminal` `action=get` on the returned `process_id`, and confirm the port is listening with `terminal` `action=run` and a short `netstat` / `ss` / `Get-NetTCPConnection` probe (or use the `http` tool to hit the service).
-- Never send a foreground `terminal.run` for a command you expect to keep running. It will block until the timeout and leave an orphan process on the port.
-- When you are done with a background process, kill it with `terminal` `action=kill` and the `process_id`.
-- On Windows, avoid POSIX-only helpers like `head`, `tail`, `grep`, `sed`, `awk`, `wc`, `&&` chains that mix shells. Use PowerShell equivalents (`Select-Object -First`, `Select-String`) or plain commands that work in `cmd.exe`. If a pipeline fails with "'X' is not recognized", rewrite without it.
-
 # Tool argument rules
-- Every tool call argument must be a single valid JSON object with double-quoted keys and values.
+- Every tool call argument must be a single valid JSON object with double-quoted keys. Preserve the value types specified by the tool schema.
 - Windows paths must use escaped backslashes: `"C:\\\\Users\\\\me"`. Do not emit raw single backslashes inside JSON strings.
 - Do not use Python dict syntax. Do not use single quotes. Do not add trailing commas.
 
 # Output style
-- Be concise; this is a terminal.
+- Use concise Markdown. Use fenced code blocks for multiline code or commands.
 - Use short paragraphs and flat bullet lists.
 - Show file paths and commands in backticks.
 - Do not echo raw tool JSON in your reply. The UI already renders it.
@@ -3699,7 +3738,6 @@ def build_planner_prompt(config: Config, tool_count: int) -> str:
 - Platform: {platform.system()} {platform.release()} ({platform.machine()})
 - Python: {platform.python_version()}
 - Working directory: {os.getcwd()}
-- Available tools: {tool_count}
 
 {_project_context(config)}
 
@@ -3779,13 +3817,8 @@ Depends on: {deps_text}
 6. Be concise. The terminal is shared with other workers.
 7. Do not echo raw tool JSON in your reply. The UI already renders it.
 
-# Long-running commands
-- If a command starts a server, watcher, or any process that does not exit on its own, use `terminal` `action=background`, not `action=run`.
-- Kill background processes you started when you are done with them.
-- On Windows, avoid POSIX-only helpers like `head`, `tail`, `grep`, `sed`. Use PowerShell equivalents or plain commands.
-
 # Tool argument rules
-- Every tool call argument must be a single valid JSON object with double-quoted keys and values.
+- Every tool call argument must be a single valid JSON object with double-quoted keys. Preserve the value types specified by the tool schema.
 - Windows paths must use escaped backslashes: `"C:\\\\Users\\\\me"`.
 - Do not use Python dict syntax. Do not use single quotes. Do not add trailing commas.
 """
@@ -3973,8 +4006,10 @@ class Agent:
         )
 
     async def _stream_round(self) -> dict[str, Any]:
+        schemas = self.tools.schemas()
+        guidance = runtime_tool_guidance(schemas)
         full_messages = [
-            {"role": "system", "content": self.system_prompt}
+            {"role": "system", "content": self.system_prompt + "\n\n" + guidance}
         ] + [{k: v for k, v in msg.items() if k != "_display_steps"}
              for msg in _repair_tool_call_history(self.messages)]
 
@@ -3994,7 +4029,7 @@ class Agent:
 
         async for chunk in self.client.stream_chat(
             full_messages,
-            tools=self.tools.schemas() or None,
+            tools=schemas or None,
             thinking=self.config.thinking,
             temperature=self.config.temperature,
             max_tokens=self.max_tokens,
@@ -5574,7 +5609,7 @@ class App:
                 self.ui.warning(f"Coding agent failed to start: {e}")
                 self.code_agent = None
 
-        self.tools = ToolRegistry(self.web_agent, self.code_agent)
+        self.tools = ToolRegistry(self.web_agent, self.code_agent, self.ui.confirm)
         self.session = Session(self.config, self.client, self.tools, self.ui)
         self.swarm = Swarm(self.config, self.client, self.tools, self.ui)
         self.swarm_state = {"running": False, "last_plan": None}

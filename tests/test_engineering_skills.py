@@ -130,6 +130,10 @@ def test_complete_agent_turn_with_catalog_and_parallel_provider_calls():
         async def stream_chat(self, messages, **options):
             names = [s["function"]["name"] for s in options["tools"]]
             assert names == ["skill_catalog", "skill_run"]
+            prompt = messages[0]["content"]
+            assert "next_offset" in prompt and "options" in prompt
+            assert all(group in prompt for group in skills.GROUP_COUNTS)
+            assert "workspace-relative" not in prompt
             if messages[-1]["role"] == "user":
                 calls = [{"id":"catalog","function":{"name":"skill_catalog","arguments":{"query":"sha256"}}}]
             elif messages[-1].get("tool_call_id") == "catalog":
@@ -218,3 +222,34 @@ def test_real_pytest_report(tmp_path):
     result = asyncio.run(registry.dispatch("skill_run", {"skill":"junit_triage","path":"run.xml"}))["result"]
     assert result["summary"] == {"passed":1,"failure":1}
     assert result["failures"][0]["name"] == "test_red"
+
+
+def test_prompt_tracks_disabled_skills_and_workspace():
+    from main import runtime_tool_guidance
+    registry = ToolRegistry(None, Mock())
+    assert "workspace-relative" in runtime_tool_guidance(registry.schemas())
+    registry.disable("skill_run")
+    registry.disable("skill_catalog")
+    guidance = runtime_tool_guidance(registry.schemas())
+    assert "skill_run" not in guidance and "skill_catalog" not in guidance
+    assert "Installed skill groups" not in guidance
+
+
+def test_consent_waits_for_the_matching_browser_answer():
+    from browser_ui.server import BrowserUI
+
+    async def scenario():
+        ui = BrowserUI(Mock())
+        registry = ToolRegistry(None, None, ui.confirm)
+        for value, approved in [("no", False), ("yes", True)]:
+            pending = asyncio.create_task(registry.dispatch(
+                "request_consent", {"question": "Remove the generated build directory?"}))
+            await asyncio.sleep(0)
+            assert not pending.done()
+            assert [choice["name"] for choice in ui.question["choices"]] == ["Allow", "Decline"]
+            assert not ui.submit("stale", value)
+            assert ui.submit(ui.question["id"], value)
+            assert await pending == {"approved": approved}
+            assert ui.question is None
+
+    asyncio.run(scenario())

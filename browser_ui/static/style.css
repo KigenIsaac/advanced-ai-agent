@@ -578,3 +578,17 @@ details[open] > summary .stepIcon {transform: rotate(90deg)}
 
 #useModel, #unlockVault, #saveNamedKey {margin-top: .8rem}
 #modelEndpoint {display: block; overflow-wrap: anywhere; margin-top: .35rem; color: var(--muted)}
+
+.entry .writeSource {white-space: pre; tab-size: 4; overflow: auto; max-height: 22rem}
+.entry .writeOutcome {margin: .65rem 0; font-size: .875rem}
+.entry .rawWrite {padding: .4rem 0 0}
+.entry .rawWrite > summary {display: list-item; list-style: disclosure-closed}
+.entry .rawWrite[open] > summary {list-style: disclosure-open}
+
+.terminalCommand {white-space: pre-wrap; overflow-wrap: anywhere; max-height: 4.8em; overflow: auto}
+.terminalFacts {display: grid; grid-template-columns: max-content minmax(0,1fr); gap: .25rem .9rem; margin: .65rem 0}
+.terminalFacts[hidden] {display: none}
+.terminalFacts dt {color: var(--muted)}
+.terminalFacts dd {margin: 0; font-family: ui-monospace, monospace; overflow-wrap: anywhere}
+.entry .terminalPanel :is(.stdout,.stderr) pre {color: #eaf3ee; background: #192922; white-space: pre; tab-size: 4; overflow: auto}
+.entry .terminalPanel .stderr pre {border-left: 3px solid #c79d63}
