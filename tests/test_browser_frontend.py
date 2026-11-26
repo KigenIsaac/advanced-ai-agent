@@ -289,3 +289,44 @@ def test_tool_bubbles_follow_each_call_through_completion():
     assert json.loads(first["result"]) == {"text": "file a"}
     assert second["status"] == "Failed" and "missing file" in second["result"]
     assert third["status"] == "Interrupted"
+
+
+def test_workspace_write_bubbles_render_literal_source_and_byte_receipt():
+    async def exercise():
+        from types import SimpleNamespace
+        from aiohttp.test_utils import TestServer
+        from browser_ui.server import BrowserUI, application
+
+        source = "use axum::{\n    extract::State,\n};\n// <script>example()</script>"
+        path = "src/handlers.rs"
+        args = dict(action="write", path=path, content=source)
+        result = dict(path=path, bytes=len(source.encode()))
+        app = SimpleNamespace(config=None, project=None, tools=None, settings=dict(provider="local", model="test"),
+                              session=SimpleNamespace(prompt_tokens=0, completion_tokens=0, messages=[
+                                  {"role":"assistant", "tool_calls":[{"id":"w", "function":{
+                                      "name":"workspace", "arguments":json.dumps(args)}}]},
+                                  {"role":"tool", "tool_call_id":"w", "content":json.dumps(result)}]))
+        ui = BrowserUI(app)
+        ui.restore()
+        import socket
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        authority = f"127.0.0.1:{sock.getsockname()[1]}"
+        async with TestServer(application(ui, "token", authority), socket_factory=lambda *a, **kw: sock) as server:
+            async with async_playwright() as pw:
+                browser = await pw.chromium.launch(executable_path=os.getenv("TEST_CHROMIUM_EXECUTABLE") or shutil.which("google-chrome"))
+                try:
+                    page = await browser.new_page()
+                    await page.goto(str(server.make_url("/")) + "#token")
+                    await page.get_by_text("Wrote " + path, exact=True).click()
+                    assert await page.locator(".writeSource").inner_text() == source
+                    assert await page.locator(".writeSource script").count() == 0
+                    assert await page.locator(".writeOutcome").inner_text() == f"{result['bytes']} bytes written"
+                    assert not await page.locator(".arguments pre").is_visible()
+                    await page.get_by_text("Raw JSON").click()
+                    assert json.loads(await page.locator(".arguments pre").inner_text()) == args
+                    assert json.loads(await page.locator(".result pre").inner_text()) == result
+                finally:
+                    await browser.close()
+
+    asyncio.run(exercise())

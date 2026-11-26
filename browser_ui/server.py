@@ -129,6 +129,11 @@ class BrowserUI(TerminalUI):
         self.waiter.set_result(value)
         return True
 
+    async def confirm(self, label):
+        self.choices = [{"name": "Allow", "value": "yes"}, {"name": "Decline", "value": "no"}]
+        response = await self.read(label)
+        return response.strip().lower() in {"y", "yes"}
+
     async def ask(self):
         return await self.read("Message the agent", chat=True)
 

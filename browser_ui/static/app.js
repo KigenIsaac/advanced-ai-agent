@@ -125,6 +125,89 @@ function formatted(value) {
   }
   return JSON.stringify(value, null, 2);
 }
+function objectValue(value) {
+  if (typeof value === "string") {
+    try { value = JSON.parse(value); } catch { return null; }
+  }
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function renderWorkspaceWrite(node, row) {
+  const args = objectValue(row.arguments);
+  const write = args?.action === "write" && typeof args.path === "string" && typeof args.content === "string";
+  let panel = node.querySelector(".writePanel");
+  if (!write) {
+    if (panel) {
+      panel.after(node.querySelector(".arguments"), node.querySelector(".result"));
+      panel.remove();
+    }
+    return;
+  }
+  if (!panel) {
+    panel = el("section", "", "writePanel");
+    const raw = el("details", "", "rawWrite");
+    raw.append(el("summary", "Raw JSON"));
+    node.querySelector(".arguments").before(panel);
+    raw.append(node.querySelector(".arguments"), node.querySelector(".result"));
+    panel.append(el("p", "", "writeOutcome"), el("pre", "", "writeSource"), raw);
+  }
+  const result = objectValue(row.result);
+  const success = row.status === "Completed" && !result?.error && Number.isSafeInteger(result?.bytes);
+  const path = (success && typeof result.path === "string") ? result.path : args.path;
+  node.querySelector("summary strong").textContent = (success ? "Wrote " : "Write ") + path;
+  const outcome = panel.querySelector(".writeOutcome");
+  outcome.textContent = success ? result.bytes.toLocaleString() + " bytes written"
+    : row.status === "Failed" ? String(result?.message || result?.error || "Write failed") : "";
+  outcome.hidden = !outcome.textContent;
+  panel.querySelector(".writeSource").textContent = args.content;
+}
+function renderTerminal(node, row) {
+  const args = objectValue(row.arguments) || {}, result = objectValue(row.result) || {};
+  let panel = node.querySelector(".terminalPanel");
+  if (!panel) {
+    panel = el("section", "", "terminalPanel");
+    const raw = el("details", "", "rawWrite");
+    raw.append(el("summary", "Raw JSON"));
+    node.querySelector(".arguments").before(panel);
+    raw.append(node.querySelector(".arguments"), node.querySelector(".result"));
+    panel.append(el("dl", "", "terminalFacts"), el("p", "", "terminalNotice"),
+      el("div", "", "terminalProcesses"), node.querySelector(".stdout"), node.querySelector(".stderr"),
+      node.querySelector(".observation"), raw);
+  }
+  const action = args.action || "run";
+  const titles = {list:"List processes", get:"Inspect process", wait:"Wait for process", kill:"Stop process"};
+  const command = args.command || result.command || titles[action] || "Terminal";
+  const heading = node.querySelector("summary strong");
+  heading.classList.add("terminalCommand");
+  heading.textContent = command;
+  heading.title = command;
+  const duration = result.duration ?? row.elapsed;
+  node.querySelector("summary small").textContent = Number.isFinite(duration) ? duration + " s" : "";
+  const facts = panel.querySelector(".terminalFacts");
+  facts.replaceChildren();
+  for (const [label, value] of [["Directory", result.cwd ?? args.cwd], ["Timeout", args.timeout == null ? null : args.timeout + " s"],
+    ["Process ID", result.process_id ?? result.id ?? args.process_id], ["Exit code", result.exit_code]]) {
+    if (value != null) facts.append(el("dt", label), el("dd", String(value)));
+  }
+  facts.hidden = !facts.childElementCount;
+  for (const key of ["stdout", "stderr"]) {
+    const section = panel.querySelector("." + key);
+    const output = result[key] || row[key] || "";
+    section.hidden = !output;
+    section.querySelector("pre").textContent = output.replace(/\r\n?/g, "\n");
+  }
+  const notice = panel.querySelector(".terminalNotice");
+  const messages = [];
+  if (result.error) messages.push(String(result.message || result.error));
+  if (result.truncated || (typeof row.result === "string" && row.result.endsWith("[truncated]"))) messages.push("Output truncated.");
+  if (action === "list" && Array.isArray(result.processes) && !result.processes.length) messages.push("No processes.");
+  notice.textContent = messages.join(" ");
+  notice.hidden = !messages.length;
+  const processes = panel.querySelector(".terminalProcesses");
+  processes.replaceChildren();
+  for (const process of result.processes || []) {
+    processes.append(el("p", [process.id, process.command, process.status].filter(Boolean).join(" · ")));
+  }
+}
 function updateStep(node, row) {
   const summary = node.querySelector("summary");
   if (row.kind === "thinking") {
@@ -141,6 +224,8 @@ function updateStep(node, row) {
     section.hidden = row[key] === undefined;
     section.querySelector("pre").textContent = (key === "arguments" || key === "result" ? formatted(row[key]) : row[key]) ?? "";
   }
+  if (row.label === "workspace") renderWorkspaceWrite(node, row);
+  if (row.label === "terminal") renderTerminal(node, row);
 }
 function entry(row) {
   const node = el("article", "", "entry " + row.kind);

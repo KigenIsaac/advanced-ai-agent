@@ -85,7 +85,7 @@ def test_browser_displays_terminal_output_before_command_exits(tmp_path):
     async def exercise():
         ui = BrowserUI(SimpleNamespace(config=None, project=None, session=None, tools=None,
                                        settings={"provider":"local", "model":"test"}))
-        ui.tools_requested([{"id":"terminal1", "name":"terminal", "args":{}, "error":None}])
+        ui.tools_requested([{"id":"terminal1", "name":"terminal", "args":{"action":"run","command":"node build.js","timeout":10}, "error":None}])
         ui.tool_started("terminal1")
         script = tmp_path / "build.js"
         script.write_text("""
@@ -109,7 +109,7 @@ def test_browser_displays_terminal_output_before_command_exits(tmp_path):
                 page = await browser.new_page()
                 await page.goto(str(server.make_url("/")) + "#test-token")
                 bubble = page.locator(".entry.tool")
-                await bubble.locator("summary").click()
+                await bubble.get_by_text("node build.js", exact=True).click()
                 with_sink = output_sink.set(lambda channel, text: ui.terminal_progress("terminal1", channel, text))
                 try:
                     job = asyncio.create_task(Shell(Workspace(tmp_path)).run("node build.js", timeout=10))
@@ -124,7 +124,11 @@ def test_browser_displays_terminal_output_before_command_exits(tmp_path):
                     result = await job
                 ui.tool_finished("terminal1", result, result["duration"])
                 await bubble.locator(".toolStatus").get_by_text("Failed").wait_for()
-                assert await bubble.count() == 1 and await bubble.locator("details").evaluate("d => d.open")
+                assert await bubble.count() == 1 and await bubble.locator(":scope > details").evaluate("d => d.open")
+                assert await bubble.locator(".terminalFacts").get_by_text("1", exact=True).is_visible()
+                assert not await bubble.locator(".result pre").is_visible()
+                await bubble.get_by_text("Raw JSON").click()
+                assert json.loads(await bubble.locator(".result pre").inner_text())["exit_code"] == 1
             finally:
                 await browser.close()
 
