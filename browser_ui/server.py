@@ -13,6 +13,7 @@ from html import escape
 from markdown_it import MarkdownIt
 from pathlib import Path
 
+from browser_ui.documents import extract_document
 from browser_ui.model_settings import ModelSettings
 from browser_ui.credentials import WorkspaceCredentials, VaultUnavailable
 from aiohttp import web
@@ -422,6 +423,15 @@ def application(ui, token, authority):
             )
         return web.json_response({"ok": True})
 
+    async def document(request):
+        upload = request.clone(client_max_size=5 * 1024**2 + 1)
+        data = await upload.read()
+        try:
+            text = await asyncio.to_thread(extract_document, request.query.get("extension"), data)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        return web.json_response({"text": text})
+
     async def catalog(request):
         query = request.query.get("q", "")
         try:
@@ -506,6 +516,7 @@ def application(ui, token, authority):
     app.router.add_get("/api/settings/models", model_settings)
     app.router.add_post("/api/settings/models", model_settings)
     app.router.add_get("/api/state", state)
+    app.router.add_post("/api/document", document)
     app.router.add_post("/api/input", respond)
     app.router.add_get("/api/skills", catalog)
     app.router.add_get("/api/history", history)

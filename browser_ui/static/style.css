@@ -1,11 +1,26 @@
 :root {
   font-family: "DM Sans", Inter, system-ui, sans-serif;
-  background: #f6f6ef;
-  color: #1e3029;
-  --line: #d9ded2;
-  --green: #204e39;
-  --muted: #53665a;
+  color-scheme: light dark;
+  background: var(--canvas);
+  color: var(--ink);
+  --canvas: light-dark(#f8f9f6, #121917);
+  --surface: light-dark(#ffffff, #1c2521);
+  --ink: light-dark(#1e3029, #edf3ed);
+  --line: light-dark(#ced8cf, #45574c);
+  --green: light-dark(#204e39, #a8deb7);
+  --muted: light-dark(#506357, #b1c0b6);
+  --tint: light-dark(#eaf1e9, #273a2e);
+  --hover: light-dark(#deeade, #354b3b);
+  --danger: light-dark(#923821, #ffb8a4);
+  --error-surface: light-dark(#fff1ed, #382724);
+  --thought: light-dark(#f1eff8, #302c3b);
+  --thought-ink: light-dark(#443f57, #e0d9ef);
+  --focus: light-dark(#985916, #f8c779);
+  --action: light-dark(#204e39, #a8deb7);
+  --on-action: light-dark(#ffffff, #142c1e);
 }
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
 * {
   box-sizing: border-box;
 }
@@ -30,7 +45,7 @@ input:focus-visible,
 textarea:focus-visible,
 select:focus-visible,
 a:focus-visible {
-  outline: 3px solid #b77521;
+  outline: 3px solid var(--focus);
   outline-offset: 3px;
 }
 .skip,
@@ -46,12 +61,12 @@ a:focus-visible {
   width: auto;
   height: auto;
   z-index: 5;
-  background: white;
+  background: var(--surface);
 }
 .layout {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 205px minmax(0, 1fr);
+  grid-template-columns: 176px minmax(0, 1fr);
 }
 aside {
   background: #132b23;
@@ -124,7 +139,7 @@ nav button:hover {
 }
 main {
   min-width: 0;
-  padding: 0 clamp(18px, 4.5vw, 80px) 32px;
+  padding: 0 clamp(12px, 2.1vw, 36px) 20px;
 }
 header {
   display: flex;
@@ -144,7 +159,7 @@ header {
   color: #a7b1a0;
 }
 #connection {
-  background: #e7eddf;
+  background: var(--tint);
   border-radius: 20px;
   padding: 5px 12px;
 }
@@ -175,15 +190,15 @@ header {
 }
 .subtle,
 select {
-  border: 1px solid #cdd6c8;
+  border: 1px solid var(--line);
   color: var(--green);
-  background: #fbfcf6;
+  background: var(--surface);
   padding: 8px 12px;
   border-radius: 6px;
   font-size: 13px;
 }
 .subtle:hover:enabled {
-  background: #e6eddf;
+  background: var(--hover);
 }
 .metrics {
   display: flex;
@@ -235,18 +250,18 @@ h3 {
 .entry {
   padding: 12px 15px;
   margin: 6px 0;
-  border-left: 3px solid #a5b69d;
-  background: #fdfdf7;
+  border-left: 3px solid var(--line);
+  background: var(--surface);
   border-radius: 0 7px 7px 0;
   overflow-wrap: anywhere;
 }
 .entry.user {
   border-color: #779c5c;
-  background: #eaf0e1;
+  background: var(--tint);
 }
 .entry.error {
-  border-color: #ab4937;
-  background: #fff1ea;
+  border-color: var(--danger);
+  background: var(--error-surface);
 }
 .entry.activity,
 .entry.notice,
@@ -289,8 +304,8 @@ h3 {
 #promptBox {
   margin: 18px 0;
   padding: 16px;
-  background: #fffef8;
-  border: 1px solid #cdd5c5;
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 12px;
   box-shadow: 0 3px 10px #18381808;
 }
@@ -310,12 +325,12 @@ h3 {
 .choice {
   border: 1px solid var(--line);
   color: var(--green);
-  background: #f1f5e8;
+  background: var(--tint);
   padding: 8px 11px;
   border-radius: 6px;
 }
 .choice:hover {
-  background: #deebcf;
+  background: var(--hover);
 }
 textarea {
   width: 100%;
@@ -332,8 +347,8 @@ textarea {
   font-size: 12px;
 }
 #send {
-  background: var(--green);
-  color: white;
+  background: var(--action);
+  color: var(--on-action);
   border: 0;
   border-radius: 7px;
   padding: 10px 18px;
@@ -350,7 +365,7 @@ textarea {
   border: 1px solid var(--line);
   padding: 11px;
   border-radius: 7px;
-  background: #fffef8;
+  background: var(--surface);
 }
 .skill,
 .toolRow {
@@ -372,7 +387,7 @@ textarea {
   margin-top: 15px;
 }
 #alert {
-  color: #9b3621;
+  color: var(--danger);
 }
 [hidden] {
   display: none !important;
@@ -455,10 +470,10 @@ textarea {
 }
 
 /* Conversation layout */
-:root {background:#f8f9f6;--line:#dce2dc;--muted:#506357}
-main {width:100%;max-width:1440px;margin-inline:auto}
+
+main {width:100%;margin-inline:auto}
 header {min-height:56px}
-#session {max-width:1040px;margin:auto;display:flex;flex-direction:column}
+#session {margin:auto;display:flex;flex-direction:column}
 #session .intro {margin:18px 0 12px}
 #session .intro h1 {font-size:clamp(28px,3.4vw,46px);letter-spacing:-.045em}
 .metrics {gap:8px 22px;padding:9px 0 14px;border-top:0}
@@ -466,18 +481,18 @@ header {min-height:56px}
 .metrics small {margin:0}
 .metrics strong {font-size:12px}
 .sessionBar {margin:14px 0 8px}
-#feed {flex:1;min-height:90px;max-height:none;padding:4px 10px 12px 0;scrollbar-gutter:stable;overscroll-behavior:contain;overflow-anchor:none}
+#feed {flex:1;min-height:0;max-height:none;padding:4px 10px 12px 0;scrollbar-gutter:stable;overscroll-behavior:contain;overflow-anchor:none}
 .entry {max-width:84ch;margin:10px auto 10px 0}
 .entry.assistant {background:none;border:0;padding:10px 0}
-.entry.user {background:#eaf1e9;border:1px solid #d5e3d6;border-radius:14px 14px 3px 14px;padding:12px 18px;margin-left:auto;margin-right:0;max-width:min(82%,72ch);width:fit-content}
-.entry.tool {padding:0;border:1px solid #d5dfd8;border-radius:9px;background:#f1f5f1}
-.entry.tool.failed {background:#fff1ed;border-color:#e3c3b9}
+.entry.user {background:var(--tint);border:1px solid var(--line);border-radius:14px 14px 3px 14px;padding:12px 18px;margin-left:auto;margin-right:0;max-width:min(82%,72ch);width:fit-content}
+.entry.tool {padding:0;border:1px solid var(--line);border-radius:9px;background:var(--tint)}
+.entry.tool.failed {background:var(--error-surface);border-color:var(--line)}
 .entry details {padding:9px 12px}
 .entry summary {cursor:pointer;font-size:13px;line-height:1.6}
 .entry summary strong {font-family:ui-monospace,monospace;margin-inline:5px 12px}
 .toolStatus,.entry summary small {display:inline-block;color:var(--muted);font-size:12px;margin-right:8px}
 .entry details h4 {margin:12px 0 5px;font-size:12px}
-.entry details pre {max-height:18rem;padding:10px;background:white;border:1px solid var(--line);border-radius:5px}
+.entry details pre {max-height:18rem;padding:10px;background:var(--surface);border:1px solid var(--line);border-radius:5px}
 .answer {line-height:1.65;min-width:0}
 .answer :is(h1,h2,h3,h4,h5,h6) {font-family:inherit;font-weight:650;line-height:1.25;letter-spacing:-.025em;margin:1.1em 0 .35em}
 .answer h1 {font-size:1.65rem}
@@ -491,8 +506,8 @@ header {min-height:56px}
 .answer :is(ul,ol) {padding-left:1.6em}
 .answer blockquote {border-left:3px solid #8ba995;padding:1px 1em;color:var(--muted)}
 .answer hr {border:0;border-top:1px solid var(--line)}
-.answer a {color:#206143;text-underline-offset:3px}
-.answer code {font-size:.88em;background:#e5ece6;border-radius:3px;padding:1px 4px}
+.answer a {color:var(--green);text-underline-offset:3px}
+.answer code {font-size:.88em;background:var(--tint);border-radius:3px;padding:1px 4px}
 .answer .codeBlock {border-radius:9px;overflow:hidden;background:#172d25;color:#e7f0df}
 .answer .codeBar {display:flex;align-items:center;justify-content:space-between;padding:6px 12px;background:#253d32;color:#e1e9df;font:12px ui-monospace,monospace}
 .codeBar button {background:transparent;color:inherit;border:1px solid #637a68;padding:3px 9px}
@@ -501,18 +516,18 @@ header {min-height:56px}
 .tableScroll {overflow-x:auto;max-width:100%}
 .answer table {border-collapse:collapse;min-width:min(100%,20rem);font-size:14px}
 .answer :is(td,th) {padding:6px 12px;text-align:left;border:1px solid var(--line)}
-.answer th {background:#eaf0e9}
+.answer th {background:var(--tint)}
 .answer .align-center {text-align:center}
 .answer .align-right {text-align:right}
 .answer .taskItem {list-style:none}
-#promptBox {margin:8px 0 12px;background:#fff;box-shadow:0 6px 20px #192e2210}
+#promptBox {margin:8px 0 12px;background:var(--surface);box-shadow:0 6px 20px #192e2210}
 #message {max-height:18vh}
 #alert:empty {display:none}
 dialog {width:min(480px,calc(100% - 32px));max-height:75dvh;border:1px solid var(--line);border-radius:14px;padding:18px 22px;color:inherit;box-shadow:0 16px 70px #16271d30}
 dialog::backdrop {background:#11261d55}
 dialog .sessionBar {margin:0 0 12px}
-.archiveRow {width:100%;border:0;border-top:1px solid var(--line);background:white;text-align:left;padding:14px 4px;display:grid;gap:4px;color:inherit;overflow-wrap:anywhere}
-.archiveRow:hover {background:#eff4ef}
+.archiveRow {width:100%;border:0;border-top:1px solid var(--line);background:var(--surface);text-align:left;padding:14px 4px;display:grid;gap:4px;color:inherit;overflow-wrap:anywhere}
+.archiveRow:hover {background:var(--hover)}
 .archiveRow small {color:var(--muted)}
 @media(min-height:620px){
   main:has(#session:not([hidden])) {display:flex;flex-direction:column;height:100dvh;padding-bottom:0}
@@ -538,7 +553,7 @@ dialog .sessionBar {margin:0 0 12px}
 @media(max-height:619px){#feed {max-height:65dvh}}
 
 
-.settingsCard {max-width:38rem; margin:0 0 1rem; padding:clamp(1rem,3vw,1.75rem); background:white; border:1px solid var(--line); border-radius:12px}
+.settingsCard {max-width:38rem; margin:0 0 1rem; padding:clamp(1rem,3vw,1.75rem); background:var(--surface); border:1px solid var(--line); border-radius:12px}
 .settingsCard h2 {margin:0 0 1rem}
 .settingsCard label {display:block; margin:1rem 0 .4rem; font-weight:600}
 .settingsCard :is(input,select) {width:100%; min-height:42px; padding:.6rem; border:1px solid var(--line); border-radius:6px; font:inherit}
@@ -554,7 +569,7 @@ dialog .sessionBar {margin:0 0 12px}
 .entry.assistant {
   width: fit-content;
   max-width: min(100%, 84ch);
-  background: white;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 3px 14px 14px;
   padding: 12px 16px;
@@ -564,7 +579,7 @@ dialog .sessionBar {margin:0 0 12px}
   max-width: min(100%, 72ch);
   border-radius: 4px 10px 10px;
 }
-.entry.thinking {padding: 0; background: #f1eff8; border: 1px solid #dad5e7; color: #443f57}
+.entry.thinking {padding: 0; background: var(--thought); border: 1px solid var(--line); color: var(--thought-ink)}
 .entry summary {display: flex; align-items: center; gap: 6px; list-style: none}
 .entry summary::-webkit-details-marker {display: none}
 .entry summary:focus-visible {outline: 2px solid currentColor; outline-offset: 3px}
@@ -592,3 +607,62 @@ details[open] > summary .stepIcon {transform: rotate(90deg)}
 .terminalFacts dd {margin: 0; font-family: ui-monospace, monospace; overflow-wrap: anywhere}
 .entry .terminalPanel :is(.stdout,.stderr) pre {color: #eaf3ee; background: #192922; white-space: pre; tab-size: 4; overflow: auto}
 .entry .terminalPanel .stderr pre {border-left: 3px solid #c79d63}
+
+.workspaceControls, .themeControl, .chatActions, .composeTools, #documentControl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.themeControl {font-size: 13px; color: var(--muted)}
+.workspaceControls {margin-left: auto}
+.chatHeading {display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px}
+.chatTitle {min-width: 0}
+.chatTitle h1 {font-weight: 600; line-height: 1.2; font-size: clamp(20px, 2.1vw, 30px); margin: 0; overflow-wrap: anywhere}
+.chatTitle p {font-size: 13px; margin: 4px 0; color: var(--muted); overflow-wrap: anywhere}
+.chatActions {flex-shrink: 0}
+.sessionDetails {border-bottom: 1px solid var(--line); margin-bottom: 4px}
+.sessionDetails summary {width: fit-content; padding: 7px 2px; cursor: pointer; font-size: 13px; color: var(--green)}
+.sessionDetails .metrics {align-items: center; border: 0}
+#earlier {align-self: center}
+#feed:focus-visible, summary:focus-visible, #documentControl:has(input:focus-visible) .attachButton {
+  outline: 2px solid var(--focus); outline-offset: 2px;
+}
+#promptBox {padding: 10px 14px}
+#message {min-height: 38px; margin: 4px 0}
+.composeTools, #documentControl {min-width: 0; flex-wrap: wrap}
+.attachButton, #removeDocument {font: inherit; color: var(--green); border: 1px solid var(--line); border-radius: 6px; background: var(--surface); padding: 7px 9px; cursor: pointer}
+.attachButton:hover, #removeDocument:hover {background: var(--hover)}
+#documentName {overflow-wrap: anywhere; max-width: 28ch}
+#documentError {color: var(--danger); font-size: 13px}
+#documentError:not(:empty) {margin-top: 8px}
+.settingsCard input, .filters input, dialog {background: var(--surface); color: var(--ink)}
+.largeMessages .entry :is(.answer p,.answer li), .largeMessages .entry.user p {font-size: 1.16rem}
+@media (max-width: 720px) {
+  .chatHeading {margin-top: 6px}
+  .chatActions {gap: 4px}
+  .workspaceControls {gap: 4px}
+  .runOptions span {display: none}
+  .themeControl {gap: 4px}
+}
+@media (max-width: 480px) {
+  .crumb {display: none}
+  .workspaceControls {width: 100%; justify-content: space-between}
+  .chatActions button {padding: 7px}
+}
+@media (max-width: 480px) {
+  aside .brand {display: none}
+  aside nav {width: 100%; justify-content: space-between}
+  aside nav button {min-height: 36px}
+  #promptBox {padding: 8px}
+  #promptBox:has(#documentControl:not([hidden])) #question {position: absolute; clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden}
+  #message {height: 40px}
+  .composeFoot, .composeTools {gap: 4px}
+  .attachButton, .runOptions select {padding-inline: 5px}
+  #send {padding-inline: 12px}
+}
+@media (max-width: 360px) {
+  .sessionDetails summary {padding-block: 4px}
+  .sessionDetails {margin-bottom: 0}
+  .composeFoot {font-size: 12px}
+  #documentName:empty {display: none}
+}

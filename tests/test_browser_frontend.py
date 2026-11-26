@@ -104,6 +104,20 @@ def test_browser_operates_real_cli_session(tmp_path):
                     errors = []
                     page.on("pageerror", lambda exc: errors.append(str(exc)))
                     await page.goto(url)
+                    theme = page.get_by_label("Theme", exact=True)
+                    assert await theme.input_value() == "system"
+                    await page.emulate_media(color_scheme="dark")
+                    canvas = "getComputedStyle(document.documentElement).backgroundColor"
+                    dark_canvas = await page.evaluate(canvas)
+                    await theme.select_option("light")
+                    assert await page.evaluate(canvas) != dark_canvas
+                    await page.reload()
+                    assert await theme.input_value() == "light"
+                    await theme.select_option("dark")
+                    await page.emulate_media(color_scheme="light")
+                    assert await page.evaluate(canvas) == dark_canvas
+                    await theme.select_option("system")
+                    assert await page.evaluate(canvas) != dark_canvas
                     await page.get_by_role("button", name="Settings").click()
                     await page.locator("#modelProvider").select_option("deepseek")
                     await page.locator("#vaultPhrase").fill("browser test vault passphrase")
@@ -149,6 +163,10 @@ def test_browser_operates_real_cli_session(tmp_path):
                     await tool.get_by_role("button", name="Enabled").click()
                     await tool.get_by_role("button", name="Disabled").wait_for()
                     await page.locator('[data-view="session"]').click()
+                    await page.locator("#documentFile").set_input_files({
+                        "name": "catalog.txt", "mimeType": "text/plain",
+                        "buffer": b"Look for SHA-256 in the catalog.",
+                    })
                     await page.locator("#message").fill("Check the catalog")
                     await page.locator("#send").click()
                     tool_bubble = page.locator("#feed .entry.tool")
@@ -162,6 +180,10 @@ def test_browser_operates_real_cli_session(tmp_path):
                     await tool_bubble.locator("summary").click()
                     await page.get_by_text("Verified", exact=True).wait_for(
                         timeout=20000
+                    )
+                    assert any(
+                        msg["role"] == "user" and "Look for SHA-256 in the catalog." in msg["content"]
+                        for msg in requests[0]["messages"]
                     )
                     assert len(requests) == 2
                     assert all(r["model"] == "browser-chosen-model" for r in requests)

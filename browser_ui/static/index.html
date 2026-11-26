@@ -29,32 +29,37 @@
           <div class="crumb">
             Workspace <b>/</b> <span id="crumb">Session</span>
           </div>
-          <span id="connection" role="status">Connecting…</span>
+          <div class="workspaceControls">
+            <span id="connection" role="status">Connecting…</span>
+            <label class="themeControl">Theme
+              <select id="theme">
+                <option value="system">System</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+            </label>
+          </div>
         </header>
         <section id="session">
-          <div class="intro">
-            <div>
+          <div class="chatHeading">
+            <div class="chatTitle">
               <h1 id="project">Agent workspace</h1>
               <p id="context">Starting the local session…</p>
             </div>
-            <button class="subtle" id="projects" disabled>
-              Switch project
-            </button>
-          </div>
-          <div class="metrics">
-            <div><small>Provider</small><strong id="provider">—</strong></div>
-            <div><small>Mode</small><strong id="mode">—</strong></div>
-            <div>
-              <small>Session tokens</small><strong id="tokens">—</strong>
+            <div class="chatActions">
+              <button class="subtle" id="history" disabled>History</button>
+              <button class="subtle" id="new" disabled>New chat</button>
             </div>
           </div>
-          <div class="sessionBar">
-            <h2>Conversation</h2>
-            <div>
-              <button class="subtle" id="history" disabled>History</button
-              ><button class="subtle" id="new" disabled>New chat</button>
+          <details class="sessionDetails">
+            <summary>Session details</summary>
+            <div class="metrics">
+              <div><small>Provider</small><strong id="provider">—</strong></div>
+              <div><small>Mode</small><strong id="mode">—</strong></div>
+              <div><small>Session tokens</small><strong id="tokens">—</strong></div>
+              <button class="subtle" id="projects" disabled>Switch project</button>
             </div>
-          </div>
+          </details>
           <button id="earlier" class="subtle" hidden>Load earlier messages</button>
           <div
             id="feed"
@@ -74,14 +79,24 @@
                 placeholder="Waiting for the agent…"
               ></textarea>
               <div class="composeFoot">
-                <div class="runOptions">
-                  <select id="runMode" aria-label="Run mode" hidden>
-                    <option value="single">Single agent</option>
-                    <option value="swarm">Swarm</option></select
-                  ><span>Shift+Enter for a new line</span>
+                <div class="composeTools">
+                  <div id="documentControl" hidden>
+                    <label class="attachButton" for="documentFile" title="PDF, DOCX, TXT, MD, CSV or JSON · 5 MiB maximum">Attach document</label>
+                    <input class="sr" type="file" id="documentFile" accept=".pdf,.docx,.txt,.md,.csv,.json">
+                    <span id="documentName" aria-live="polite"></span>
+                    <button type="button" id="removeDocument" hidden>Remove</button>
+                  </div>
+                  <div class="runOptions">
+                    <select id="runMode" aria-label="Run mode" hidden>
+                      <option value="single">Single agent</option>
+                      <option value="swarm">Swarm</option>
+                    </select>
+                    <span>Shift+Enter for a new line</span>
+                  </div>
                 </div>
                 <button id="send" disabled>Send</button>
               </div>
+              <div id="documentError" role="alert"></div>
             </form>
           </section>
         </section>
