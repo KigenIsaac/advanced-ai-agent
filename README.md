@@ -134,7 +134,19 @@ The test suite covers configuration behavior plus deterministic workspace, test-
 
 ## Engineering skills
 
-The agent can discover 810 skills with `skill_catalog` and run them with `skill_run` in individual sessions and swarm workers. The catalog includes 63 document operations and reports, 359 Python checks powered by Ruff, 48 ANSI SQL checks powered by SQLFluff, six combined reviews, 23 browser, document and repository workflows, 49 system design skills, and 262 engineering assurance skills. Each analyzer check selects one named rule. A combined review runs its selected rules together in one process.
+The agent can discover 1,210 skills with `skill_catalog` and run them with `skill_run` in individual sessions and swarm workers. The catalog includes 63 document operations and reports, 359 Python checks powered by Ruff, 48 ANSI SQL checks powered by SQLFluff, six combined reviews, 23 browser, document and repository workflows, 49 system design skills, 262 engineering assurance skills, and 400 language and framework skills. Each analyzer check selects one named rule. A combined review runs its selected rules together in one process.
+
+The `rust`, `go`, `nextjs` (Next.js) and `csharp` (C#) groups each expose 100 skills. Query a group with a keyword or request two pages of 50 entries. Supply source, a manifest, or a saved tool report as specified in the skill description.
+
+| Group | Coverage | Example skill and input |
+| --- | --- | --- |
+| Rust | Types, traits, generics, ownership syntax, iterators, async, synchronization, macros, Cargo manifests and compiler messages | `rust_compiler_errors` reads Cargo JSON lines and returns primary source locations. |
+| Go | Types, interfaces, channels, goroutines, context, HTTP, I/O, module directives and test events | `go_failed_tests` reads saved `go test -json` output and identifies failed tests by package. |
+| Next.js | App and Pages Router exports, route handlers, server and client directives, caching, navigation, JSX components, configuration and package scripts | `nextjs_optimized_images` locates JSX elements bound to a default import from `next/image`, including renamed imports. |
+| C# | Declarations, generics, pattern matching, async, LINQ, ASP.NET Core, EF Core, MSBuild project XML and TRX test results | `csharp_package_references` extracts package references from a project file, including their XML attributes. |
+
+Source skills use Tree-sitter to return line ranges and excerpts for up to 50 matches, with the full count and a parse-error flag. Calls match written names, so two methods with the same name can both match. Next.js configuration skills identify candidate object properties. Manifest readers return literal settings. Compiler and test skills interpret saved output. They do not run builds, resolve dependencies, infer receiver types or evaluate MSBuild conditions.
+
 
 Discovery supports group, keyword, or rule-code searches. For example, `{"query":"F821"}` finds the undefined-name check. Results include a total and a continuation offset. The default page holds 20 entries. The model receives two tool schemas regardless of catalog size.
 
